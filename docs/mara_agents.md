@@ -13,6 +13,7 @@
 7. [Specialist Agents](#specialist-agents)
    - [ArXiv Agent](#arxiv-agent)
    - [Semantic Scholar Agent](#semantic-scholar-agent)
+   - [Citation Graph Agent](#citation-graph-agent)
    - [PubMed Agent](#pubmed-agent)
    - [CORE Agent](#core-agent)
    - [HuggingFace Papers Agent](#huggingface-papers-agent)
@@ -45,6 +46,8 @@ mara/agents/
 │   ├── fetcher.py
 │   └── latex_parser.py
 ├── semantic_scholar/  # Semantic Scholar agent (snippets)
+│   └── agent.py
+├── citation_graph/    # Citation Graph agent (citing papers via corpus ID)
 │   └── agent.py
 ├── pubmed/            # PubMed agent (PMC full-text, abstract fallback)
 │   ├── agent.py
@@ -117,6 +120,7 @@ class RawChunk:
 | ------------ | ------------------------------------------------------------ |
 | **arxiv**    | `LATEX`, `PDF_FROM_TARBALL`, `PDF_RENDERED`, `ABSTRACT_ONLY` |
 | **s2**       | `SNIPPET`                                                    |
+| **citation_graph** | `CITATION`                                             |
 | **pubmed**   | `PMC_XML`, `ABSTRACT_ONLY`                                   |
 | **core**     | `FULLTEXT`, `PDF_DOWNLOADED`, `ABSTRACT_ONLY`                |
 | **pwc**      | `PAPER_ABSTRACT`                                             |
@@ -984,6 +988,61 @@ SNIPPET = "snippet"
 - High signal-to-noise ratio (pre-filtered snippets)
 - Cross-disciplinary coverage
 - Citation metadata useful for literature review
+
+---
+
+### Citation Graph Agent
+
+**Module:** `mara/agents/citation_graph/`
+
+**Discovery:** Two-phase Semantic Scholar API walk:
+
+1. **Phase 1** — `GET {api.semanticscholar.org/graph/v1}/paper/search?query={q}&limit=1&fields=corpusId,title` → Extract `corpusId` of first result
+2. **Phase 2** — `GET {api.semanticscholar.org/graph/v1}/paper/CorpusId:{corpus_id}/citations?limit={max_results}&fields=corpusId,title,abstract,year` → Retrieve citing papers
+
+**Early Return:** If Phase 1 finds no seed paper, returns `[]` without calling Phase 2.
+
+**Content Strategy:** List of papers citing a seed paper. Text format per chunk: `{year}: {title}\n\n{abstract}` (degrades gracefully if fields are missing).
+
+**Rate Limiting:**
+
+- `_get_rate_limit_interval()` returns `1.0 / agent_config.rate_limit_rps` (1 RPS by default)
+- Both API phases send `x-api-key` header
+
+**Chunking Override:**
+
+- Citation records are pre-chunked; passed through unchanged
+
+**Source Types:**
+
+```python
+CITATION = "citation"
+```
+
+**Configuration Parameters:**
+
+- `s2_api_key` — Required; Semantic Scholar API key (shared with `s2` agent)
+- `rate_limit_rps` — Max requests per second (default 1.0)
+- `max_results` — Max citing papers per query (default 20)
+
+**URL Format:**
+
+```
+https://www.semanticscholar.org/paper/{corpusId}
+```
+
+**Key Features:**
+
+- Trace citation lineage for a given paper
+- Discover follow-up work and related research
+- Complement to snippet search (broader context)
+- Useful for literature review and impact assessment
+
+**Limitations:**
+
+- Requires a valid seed paper to exist on Semantic Scholar
+- Limited to papers in the Semantic Scholar index
+- Citation data reflects papers that cite the seed paper, not vice versa
 
 ---
 

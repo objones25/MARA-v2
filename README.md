@@ -18,15 +18,16 @@ query_planner → [route_to_agents] → run_agent (×N) → corpus_assembler →
 
 ## Agents
 
-| Agent    | Sources                                                    |
-| -------- | ---------------------------------------------------------- |
-| `arxiv`  | arXiv export API — LaTeX source, rendered PDF, or abstract |
-| `s2`     | Semantic Scholar snippet search                            |
-| `pubmed` | NCBI PubMed/PMC full text and abstracts                    |
-| `core`   | CORE API v3 full text, PDF download, or abstract           |
-| `pwc`    | HuggingFace Papers API — ML research paper abstracts        |
-| `biorxiv` | bioRxiv/medRxiv API — biology and medicine preprints       |
-| `web`    | Brave Search + Firecrawl scraping                          |
+| Agent           | Sources                                                    |
+| --------------- | ---------------------------------------------------------- |
+| `arxiv`         | arXiv export API — LaTeX source, rendered PDF, or abstract |
+| `s2`            | Semantic Scholar snippet search                            |
+| `citation_graph` | Semantic Scholar citation index — citing papers via corpus ID |
+| `pubmed`        | NCBI PubMed/PMC full text and abstracts                    |
+| `core`          | CORE API v3 full text, PDF download, or abstract           |
+| `pwc`           | HuggingFace Papers API — ML research paper abstracts        |
+| `biorxiv`       | bioRxiv/medRxiv API — biology and medicine preprints       |
+| `web`           | Brave Search + Firecrawl scraping                          |
 
 ## Installation
 

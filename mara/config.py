@@ -96,6 +96,7 @@ class ResearchConfig(BaseSettings):
 
         for agent_name, api_key in [
             ("s2", self.s2_api_key),
+            ("citation_graph", self.s2_api_key),
             ("core", self.core_api_key),
             ("pubmed", self.ncbi_api_key),
         ]:
