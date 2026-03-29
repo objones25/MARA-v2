@@ -1,0 +1,1 @@
+"""MARA command-line interface."""

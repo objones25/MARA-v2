@@ -6,8 +6,12 @@ Build order: this module has no intra-package imports — import freely.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from mara.merkle.tree import MerkleTree
+
+if TYPE_CHECKING:
+    from mara.merkle.forest import ForestTree
 
 
 @dataclass
@@ -112,3 +116,22 @@ class AgentFindings:
     def chunk_count(self) -> int:
         """Number of verified chunks in this findings object."""
         return len(self.chunks)
+
+
+@dataclass(frozen=True)
+class CertifiedReport:
+    """A cryptographically certified research report.
+
+    Bundles the final narrative with the full provenance chain:
+    the ``ForestTree`` (meta-tree of all agent sub-trees) and the
+    flattened, globally-indexed list of every ``VerifiedChunk`` used.
+
+    Inline citations in ``report`` use the format ``[ML:index:hash]``
+    where ``index`` is the chunk's global ``chunk_index`` and ``hash``
+    is its ``short_hash``.
+    """
+
+    original_query: str
+    report: str
+    forest_tree: "ForestTree"
+    chunks: tuple[VerifiedChunk, ...]

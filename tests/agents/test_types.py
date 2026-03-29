@@ -5,7 +5,8 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from mara.agents.types import AgentFindings, RawChunk, SubQuery, VerifiedChunk
+from mara.agents.types import AgentFindings, CertifiedReport, RawChunk, SubQuery, VerifiedChunk
+from mara.merkle.forest import ForestTree
 from mara.merkle.hasher import hash_chunk
 from mara.merkle.tree import build_merkle_tree
 
@@ -241,3 +242,42 @@ class TestAgentFindings:
 
     def test_is_dataclass(self):
         assert dataclasses.is_dataclass(AgentFindings)
+
+
+# ---------------------------------------------------------------------------
+# CertifiedReport
+# ---------------------------------------------------------------------------
+
+
+class TestCertifiedReport:
+    def _make(self, query: str = "q", report: str = "r") -> CertifiedReport:
+        forest = ForestTree(algorithm="sha256")
+        chunk = _make_chunk()
+        return CertifiedReport(
+            original_query=query,
+            report=report,
+            forest_tree=forest,
+            chunks=(chunk,),
+        )
+
+    def test_fields_accessible(self):
+        cr = self._make(query="test q", report="test r")
+        assert cr.original_query == "test q"
+        assert cr.report == "test r"
+        assert isinstance(cr.forest_tree, ForestTree)
+        assert len(cr.chunks) == 1
+
+    def test_is_frozen(self):
+        cr = self._make()
+        with pytest.raises(FrozenInstanceError):
+            cr.report = "mutate"  # type: ignore[misc]
+
+    def test_is_dataclass(self):
+        assert dataclasses.is_dataclass(CertifiedReport)
+
+    def test_empty_chunks_allowed(self):
+        forest = ForestTree(algorithm="sha256")
+        cr = CertifiedReport(
+            original_query="q", report="r", forest_tree=forest, chunks=()
+        )
+        assert cr.chunks == ()

@@ -41,6 +41,9 @@ addopts      = [
     "--cov-fail-under=98",
 ]
 
+[project.scripts]
+mara = "mara.cli.run:app"
+
 [tool.coverage.run]
 branch  = true
 source  = ["mara"]
