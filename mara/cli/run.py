@@ -25,8 +25,10 @@ def run(
     # Agent imports must happen here so @agent() decorators populate _REGISTRY
     # before build_graph() is called inside run_research.
     import mara.agents.arxiv  # noqa: F401
+    import mara.agents.biorxiv  # noqa: F401
     import mara.agents.core  # noqa: F401
     import mara.agents.pubmed  # noqa: F401
+    import mara.agents.pwc  # noqa: F401
     import mara.agents.semantic_scholar  # noqa: F401
     import mara.agents.web  # noqa: F401
 

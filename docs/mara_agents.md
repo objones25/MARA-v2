@@ -15,6 +15,8 @@
    - [Semantic Scholar Agent](#semantic-scholar-agent)
    - [PubMed Agent](#pubmed-agent)
    - [CORE Agent](#core-agent)
+   - [HuggingFace Papers Agent](#huggingface-papers-agent)
+   - [BioRxiv Agent](#biorxiv-agent)
    - [Web Agent](#web-agent)
 8. [Adding a New Agent](#adding-a-new-agent)
 
@@ -51,6 +53,10 @@ mara/agents/
 ├── core/              # CORE agent (fulltext, PDF, abstract fallback)
 │   ├── agent.py
 │   └── fetcher.py
+├── pwc/               # HuggingFace Papers agent (ML research abstracts)
+│   └── agent.py
+├── biorxiv/           # BioRxiv/medRxiv agent (biology/medicine preprints)
+│   └── agent.py
 └── web/               # Web agent (Brave Search + Firecrawl + filtering)
     ├── agent.py
     ├── scraper.py
@@ -107,13 +113,15 @@ class RawChunk:
 
 **Source Type Constants by Agent:**
 
-| Agent      | Source Types                                                 |
-| ---------- | ------------------------------------------------------------ |
-| **arxiv**  | `LATEX`, `PDF_FROM_TARBALL`, `PDF_RENDERED`, `ABSTRACT_ONLY` |
-| **s2**     | `SNIPPET`                                                    |
-| **pubmed** | `PMC_XML`, `ABSTRACT_ONLY`                                   |
-| **core**   | `FULLTEXT`, `PDF_DOWNLOADED`, `ABSTRACT_ONLY`                |
-| **web**    | `WEB`                                                        |
+| Agent        | Source Types                                                 |
+| ------------ | ------------------------------------------------------------ |
+| **arxiv**    | `LATEX`, `PDF_FROM_TARBALL`, `PDF_RENDERED`, `ABSTRACT_ONLY` |
+| **s2**       | `SNIPPET`                                                    |
+| **pubmed**   | `PMC_XML`, `ABSTRACT_ONLY`                                   |
+| **core**     | `FULLTEXT`, `PDF_DOWNLOADED`, `ABSTRACT_ONLY`                |
+| **pwc**      | `PAPER_ABSTRACT`                                             |
+| **biorxiv**  | `BIORXIV`, `MEDRXIV`                                         |
+| **web**      | `WEB`                                                        |
 
 ---
 
@@ -1073,6 +1081,93 @@ ABSTRACT_ONLY = "abstract_only"
 **Helper Module:**
 
 - `fetcher.py` — `extract_pdf_text()` — PDF text extraction via pypdf (shared with arxiv)
+
+---
+
+### HuggingFace Papers Agent
+
+**Module:** `mara/agents/pwc/`
+
+**Discovery:** HuggingFace Papers API (`api.huggingface.co/papers?q=...`)
+
+**Content Strategy:** Paper abstracts and summaries via the HuggingFace Papers platform (formerly Papers With Code).
+
+**Rate Limiting:**
+
+- No class-level override (uses base default 0.0)
+
+**Chunking Override:**
+
+- Paper abstracts are pre-chunked; passed through unchanged
+
+**Source Types:**
+
+```python
+PAPER_ABSTRACT = "paper_abstract"
+```
+
+**Configuration Parameters:**
+
+- No API key required
+- `pwc_max_results` — Max results per query (default 20)
+
+**Key Features:**
+
+- Covers machine learning research across computer vision, NLP, reinforcement learning, and generative models
+- Community upvote signals indicate high-impact or trending work
+- Full paper summaries and abstracts for any ML sub-field
+- No leaderboard or benchmark metric data; abstracts only
+
+**Limitations:**
+
+- Only covers papers indexed on huggingface.co/papers — not all ML literature
+- Search relevance depends on HuggingFace indexing, not peer-review status
+- Poor fit for biomedical, clinical, or non-ML research topics
+
+---
+
+### BioRxiv Agent
+
+**Module:** `mara/agents/biorxiv/`
+
+**Discovery:** bioRxiv / medRxiv APIs (`api.biorxiv.org/details/{server}/{start}/{end}/0`)
+
+**Content Strategy:** Recent preprints from both bioRxiv and medRxiv servers. Fetches the last 90 days, then filters client-side by keyword match.
+
+**Rate Limiting:**
+
+- No class-level override (uses base default 0.0)
+- Extended HTTP timeout (30 seconds) due to bulk 90-day API fetch
+
+**Chunking Override:**
+
+- Preprint abstracts are pre-chunked; passed through unchanged
+
+**Source Types:**
+
+```python
+BIORXIV = "biorxiv"
+MEDRXIV = "medrxiv"
+```
+
+**Configuration Parameters:**
+
+- No API key required
+- `biorxiv_max_results` — Max results per query (default 20)
+
+**Key Features:**
+
+- Searches across both bioRxiv (biology) and medRxiv (medicine/health sciences) simultaneously
+- Covers genomics, neuroscience, immunology, clinical trials, and epidemiology
+- Useful for cutting-edge findings before formal peer-review publication
+- Client-side keyword matching ensures high relevance
+
+**Limitations:**
+
+- Preprints are not peer-reviewed — findings may change before final publication
+- Limited to the most recent 90-day window; older papers not retrievable
+- No API-native search; relies on date-window fetch with client-side filtering
+- Poor fit for established results, engineering topics, or non-life-science research
 
 ---
 

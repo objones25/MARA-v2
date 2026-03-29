@@ -592,7 +592,7 @@ class TestArxivAgentSearch:
     def test_arxiv_registered_with_retry_backoff_base(self):
         from mara.agents.registry import _REGISTRY
 
-        assert _REGISTRY["arxiv"].config.retry_backoff_base == pytest.approx(3.0)
+        assert _REGISTRY["arxiv"].config.retry_backoff_base == pytest.approx(5.0)
 
     def test_arxiv_registered_with_max_sub_queries_one(self):
         from mara.agents.registry import _REGISTRY
