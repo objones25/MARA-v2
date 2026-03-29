@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mara.agent.graph import build_graph, run_research
+from mara.agents.registry import AgentRegistration
 from mara.agents.types import CertifiedReport, SubQuery
 from tests.agent.conftest import make_findings
 
@@ -55,7 +56,7 @@ def _fake_agent_cls(agent_type: str):
 
 async def test_run_research_returns_certified_report(research_config) -> None:
     planner_response = json.dumps([{"query": "sub-question", "domain": ""}])
-    fake_registry = {"fake": _fake_agent_cls("fake")}
+    fake_registry = {"fake": AgentRegistration(cls=_fake_agent_cls("fake"))}
 
     with (
         patch(

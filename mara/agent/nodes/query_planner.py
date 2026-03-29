@@ -10,25 +10,42 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 
 from mara.agent.state import GraphState
+from mara.agents.registry import get_registry_summary
 from mara.agents.types import SubQuery
 from mara.llm import make_llm
 
 _log = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = (
-    "You are a research query decomposition specialist. "
-    "Given a research query, decompose it into 3-5 focused sub-queries that "
-    "together cover the topic comprehensively. "
-    "Return a JSON array of objects with \"query\" and \"domain\" fields. "
-    "Example: [{\"query\": \"...\", \"domain\": \"empirical\"}, ...]. "
-    "Return ONLY the JSON array, no other text."
-)
+_SYSTEM_PROMPT_TEMPLATE = """\
+You are a research query decomposition specialist.
+
+Given a research query, decompose it into 3-5 focused sub-queries that together cover the topic comprehensively. For each sub-query, assign the single most appropriate agent from the roster below.
+
+Available agents:
+{agent_roster}
+
+Return a JSON array of objects with "query", "domain", and "agent" fields.
+- "query": the focused sub-question (non-empty string)
+- "domain": a short topic hint, e.g. "empirical", "clinical", "theoretical" (may be empty)
+- "agent": the agent name from the roster above that best fits this sub-query
+
+Example:
+[{{"query": "...", "domain": "empirical", "agent": "pubmed"}}, ...]
+
+Return ONLY the JSON array, no other text.\
+"""
+
+
+def _build_system_prompt() -> str:
+    """Build the system prompt with the current agent roster injected."""
+    return _SYSTEM_PROMPT_TEMPLATE.format(agent_roster=get_registry_summary())
 
 
 async def query_planner_node(state: GraphState, config: RunnableConfig) -> dict:
     """Decompose ``original_query`` into a list of ``SubQuery`` objects.
 
-    Calls the LLM with a decomposition prompt and parses the JSON response.
+    Calls the LLM with a decomposition prompt that includes the live agent
+    roster so the LLM can assign each sub-query to the most appropriate agent.
     Falls back to a single ``SubQuery`` wrapping the original query if the
     LLM response cannot be parsed or yields no valid sub-queries.
     """
@@ -47,7 +64,7 @@ async def query_planner_node(state: GraphState, config: RunnableConfig) -> dict:
 
     response = await llm.ainvoke(
         [
-            SystemMessage(content=_SYSTEM_PROMPT),
+            SystemMessage(content=_build_system_prompt()),
             HumanMessage(content=original_query),
         ]
     )
@@ -69,7 +86,11 @@ def _parse_sub_queries(content: str, fallback_query: str) -> list[SubQuery]:
             raise ValueError("no JSON array found in response")
         items = json.loads(match.group())
         sub_queries = [
-            SubQuery(query=item["query"], domain=item.get("domain", ""))
+            SubQuery(
+                query=item["query"],
+                domain=item.get("domain", ""),
+                agent=item.get("agent", ""),
+            )
             for item in items
             if item.get("query", "").strip()
         ]

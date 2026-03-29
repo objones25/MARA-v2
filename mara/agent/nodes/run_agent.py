@@ -29,7 +29,7 @@ async def run_agent_node(state: AgentRunState, config: RunnableConfig) -> dict:
 
     _log.debug("run_agent: agent=%r query=%r", agent_type, sub_query.query[:60])
 
-    agent_cls = _REGISTRY[agent_type]
+    agent_cls = _REGISTRY[agent_type].cls
     agent = agent_cls(research_config)
     try:
         findings = await agent.run(sub_query)

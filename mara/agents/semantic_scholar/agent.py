@@ -59,7 +59,28 @@ def _parse_snippet_response(data: dict) -> list[dict]:
     return results
 
 
-@agent("s2")
+@agent(
+    "s2",
+    description="Retrieves citation-rich paper snippets from Semantic Scholar spanning all academic disciplines.",
+    capabilities=[
+        "Cross-disciplinary coverage including medicine, CS, social sciences, and engineering",
+        "Pre-extracted relevant snippets — high signal-to-noise ratio",
+        "Citation metadata useful for identifying influential papers",
+        "Good for literature review and identifying key authors or institutions",
+    ],
+    limitations=[
+        "Snippets only — no full text or LaTeX source",
+        "Rate-limited to 1 RPS; avoid routing many sub-queries simultaneously",
+        "Less coverage of very recent preprints compared to ArXiv",
+        "Snippet context may be narrow if the paper is dense",
+    ],
+    example_queries=[
+        "survey of large language model alignment techniques",
+        "meta-analysis of CRISPR gene editing efficacy",
+        "social network analysis of misinformation spread",
+        "economic impact of automation on labor markets",
+    ],
+)
 class SemanticScholarAgent(SpecialistAgent):
     """Retrieves research snippets from the Semantic Scholar API."""
 

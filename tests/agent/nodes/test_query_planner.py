@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from mara.agent.nodes.query_planner import _parse_sub_queries, query_planner_node
+from mara.agent.nodes.query_planner import _build_system_prompt, _parse_sub_queries, query_planner_node
 from mara.agents.types import SubQuery
 
 
@@ -37,6 +37,19 @@ from mara.agents.types import SubQuery
 def test_parse_sub_queries_valid(content: str, expected_queries: list[str]) -> None:
     result = _parse_sub_queries(content, "fallback")
     assert [sq.query for sq in result] == expected_queries
+
+
+def test_parse_sub_queries_parses_agent_field() -> None:
+    content = '[{"query": "quantum error correction", "domain": "theoretical", "agent": "arxiv"}]'
+    result = _parse_sub_queries(content, "fallback")
+    assert len(result) == 1
+    assert result[0].agent == "arxiv"
+
+
+def test_parse_sub_queries_agent_defaults_to_empty() -> None:
+    content = '[{"query": "some query", "domain": ""}]'
+    result = _parse_sub_queries(content, "fallback")
+    assert result[0].agent == ""
 
 
 @pytest.mark.parametrize(
@@ -73,10 +86,21 @@ def _make_llm_mock(response_content: str) -> MagicMock:
     return llm
 
 
+def test_build_system_prompt_includes_agent_roster() -> None:
+    """The system prompt must contain the live registry summary."""
+    with patch(
+        "mara.agent.nodes.query_planner.get_registry_summary",
+        return_value="[fake] Does something.",
+    ):
+        prompt = _build_system_prompt()
+    assert "[fake] Does something." in prompt
+    assert "agent" in prompt.lower()
+
+
 async def test_query_planner_node_valid_response(runnable_config) -> None:
     payload = json.dumps([
-        {"query": "climate change effects", "domain": "empirical"},
-        {"query": "mitigation strategies", "domain": "policy"},
+        {"query": "climate change effects", "domain": "empirical", "agent": "pubmed"},
+        {"query": "mitigation strategies", "domain": "policy", "agent": "web"},
     ])
     mock_llm = _make_llm_mock(payload)
 
@@ -89,7 +113,9 @@ async def test_query_planner_node_valid_response(runnable_config) -> None:
     assert len(sub_queries) == 2
     assert sub_queries[0].query == "climate change effects"
     assert sub_queries[0].domain == "empirical"
+    assert sub_queries[0].agent == "pubmed"
     assert sub_queries[1].query == "mitigation strategies"
+    assert sub_queries[1].agent == "web"
 
 
 async def test_query_planner_node_fallback_on_bad_json(runnable_config) -> None:

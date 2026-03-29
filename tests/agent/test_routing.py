@@ -72,3 +72,53 @@ def test_route_to_agents_missing_sub_queries_key(runnable_config) -> None:
     with patch("mara.agent.edges.routing._REGISTRY", fake_registry):
         result = route_to_agents(state, runnable_config)
     assert result == "corpus_assembler"
+
+
+# ---------------------------------------------------------------------------
+# Directed routing (sub_query.agent is set)
+# ---------------------------------------------------------------------------
+
+
+def test_route_directed_sends_to_named_agent_only(runnable_config) -> None:
+    sq = SubQuery(query="q", agent="arxiv")
+    fake_registry = {"arxiv": object(), "web": object()}
+    state = {"sub_queries": [sq]}
+
+    with patch("mara.agent.edges.routing._REGISTRY", fake_registry):
+        sends = route_to_agents(state, runnable_config)
+
+    assert len(sends) == 1
+    assert sends[0].arg["agent_type"] == "arxiv"
+
+
+def test_route_directed_unknown_agent_broadcasts(runnable_config) -> None:
+    """An unrecognized agent name falls back to broadcasting to all agents."""
+    sq = SubQuery(query="q", agent="nonexistent")
+    fake_registry = {"arxiv": object(), "web": object()}
+    state = {"sub_queries": [sq]}
+
+    with patch("mara.agent.edges.routing._REGISTRY", fake_registry):
+        sends = route_to_agents(state, runnable_config)
+
+    assert len(sends) == 2  # broadcast to both
+    agent_types = {s.arg["agent_type"] for s in sends}
+    assert agent_types == {"arxiv", "web"}
+
+
+def test_route_mixed_directed_and_broadcast(runnable_config) -> None:
+    """Directed sub-queries and broadcast sub-queries can coexist."""
+    sq_directed = SubQuery(query="q1", agent="web")
+    sq_broadcast = SubQuery(query="q2")  # agent="" → broadcast
+    fake_registry = {"arxiv": object(), "web": object()}
+    state = {"sub_queries": [sq_directed, sq_broadcast]}
+
+    with patch("mara.agent.edges.routing._REGISTRY", fake_registry):
+        sends = route_to_agents(state, runnable_config)
+
+    # directed: 1 send; broadcast: 2 sends
+    assert len(sends) == 3
+    directed = [s for s in sends if s.arg["sub_query"] is sq_directed]
+    broadcast = [s for s in sends if s.arg["sub_query"] is sq_broadcast]
+    assert len(directed) == 1
+    assert directed[0].arg["agent_type"] == "web"
+    assert len(broadcast) == 2

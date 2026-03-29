@@ -84,6 +84,14 @@ class TestSubQuery:
         sq.query = "modified"
         assert sq.query == "modified"
 
+    def test_agent_defaults_to_empty_string(self):
+        sq = SubQuery(query="test")
+        assert sq.agent == ""
+
+    def test_agent_can_be_set(self):
+        sq = SubQuery(query="test", agent="arxiv")
+        assert sq.agent == "arxiv"
+
     def test_is_dataclass(self):
         assert dataclasses.is_dataclass(SubQuery)
 

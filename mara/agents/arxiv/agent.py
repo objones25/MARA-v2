@@ -117,7 +117,28 @@ def _parse_feed(xml_text: str) -> list[dict]:
     return entries
 
 
-@agent("arxiv")
+@agent(
+    "arxiv",
+    description="Retrieves preprints and papers from ArXiv covering physics, math, CS, and quantitative biology.",
+    capabilities=[
+        "Full LaTeX source for most CS/physics/math papers",
+        "PDF fallback when LaTeX is unavailable",
+        "Broad coverage of recent preprints before peer review",
+        "Strong for theoretical, mathematical, and computational topics",
+    ],
+    limitations=[
+        "No clinical or biomedical content (use pubmed)",
+        "Preprints may not be peer-reviewed",
+        "Rate-limited — avoid routing too many sub-queries here simultaneously",
+        "Weak on social sciences, humanities, and applied industry research",
+    ],
+    example_queries=[
+        "quantum error correction with surface codes",
+        "transformer attention mechanism efficiency improvements",
+        "reinforcement learning from human feedback theory",
+        "topological phases of matter",
+    ],
+)
 class ArxivAgent(SpecialistAgent):
     """Retrieves research papers from ArXiv.
 

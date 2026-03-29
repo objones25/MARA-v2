@@ -43,10 +43,14 @@ def corpus_assembler_node(state: GraphState, config: RunnableConfig) -> dict:
     for chunks in agent_chunks.values():
         chunks.sort(key=lambda c: (c.sub_query, c.chunk_index))
 
-    # Build one MerkleTree root per agent and collect for ForestTree
+    # Build one MerkleTree root per agent and collect for ForestTree.
+    # Skip agents that returned no chunks — their empty root ("") is not a
+    # valid leaf hash and build_forest_tree would raise ValueError.
     agent_data: list[tuple[str, str]] = []
     for agent_type in sorted(agent_chunks):
         chunks = agent_chunks[agent_type]
+        if not chunks:
+            continue
         tree = build_merkle_tree([c.hash for c in chunks], algorithm)
         agent_data.append((agent_type, tree.root))
 

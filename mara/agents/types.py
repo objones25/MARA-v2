@@ -27,6 +27,7 @@ class SubQuery:
 
     query: str
     domain: str = ""
+    agent: str = ""  # set by query planner for directed routing; empty = broadcast
 
     def __post_init__(self) -> None:
         self.query = self.query.strip()

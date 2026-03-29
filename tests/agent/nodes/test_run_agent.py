@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mara.agent.nodes.run_agent import run_agent_node
+from mara.agents.registry import AgentRegistration
 from mara.agents.types import SubQuery
 from tests.agent.conftest import make_findings
 
@@ -24,9 +25,14 @@ def _fake_agent_cls(findings_to_return):
     return FakeAgent
 
 
+def _reg(cls, description=""):
+    """Wrap a class in an AgentRegistration for registry patching."""
+    return AgentRegistration(cls=cls, description=description)
+
+
 async def test_run_agent_node_returns_findings_list(runnable_config) -> None:
     findings = make_findings(agent_type="fake", query="q")
-    fake_registry = {"fake": _fake_agent_cls(findings)}
+    fake_registry = {"fake": _reg(_fake_agent_cls(findings))}
 
     state = {"sub_query": SubQuery(query="q"), "agent_type": "fake"}
     with patch("mara.agent.nodes.run_agent._REGISTRY", fake_registry):
@@ -46,7 +52,7 @@ async def test_run_agent_node_instantiates_with_config(runnable_config) -> None:
         async def run(self, sub_query):
             return findings
 
-    fake_registry = {"fake": FakeAgent}
+    fake_registry = {"fake": _reg(FakeAgent)}
     state = {"sub_query": SubQuery(query="q"), "agent_type": "fake"}
 
     with patch("mara.agent.nodes.run_agent._REGISTRY", fake_registry):
@@ -70,7 +76,7 @@ async def test_run_agent_node_returns_empty_on_agent_exception(runnable_config) 
         async def run(self, sub_query):
             raise RuntimeError("boom")
 
-    fake_registry = {"failing": FailingAgent}
+    fake_registry = {"failing": _reg(FailingAgent)}
     state = {"sub_query": SubQuery(query="q"), "agent_type": "failing"}
 
     with patch("mara.agent.nodes.run_agent._REGISTRY", fake_registry):

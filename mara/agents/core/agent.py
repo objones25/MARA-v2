@@ -49,7 +49,28 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-@agent("core")
+@agent(
+    "core",
+    description="Retrieves open-access research papers from the CORE aggregator covering all academic disciplines.",
+    capabilities=[
+        "Full text for a large corpus of open-access papers across all fields",
+        "PDF download fallback when full text field is absent",
+        "Good alternative source when ArXiv or PubMed have limited coverage",
+        "Strong for education, social sciences, and interdisciplinary research",
+    ],
+    limitations=[
+        "Full text availability is inconsistent — some papers are abstract-only",
+        "Less structured than ArXiv LaTeX or PMC XML",
+        "May include theses and reports alongside journal articles",
+        "Weaker on very recent content compared to ArXiv",
+    ],
+    example_queries=[
+        "open educational resources adoption in higher education",
+        "systematic review of renewable energy policy outcomes",
+        "natural language processing applications in social science",
+        "interdisciplinary approaches to climate adaptation",
+    ],
+)
 class COREAgent(SpecialistAgent):
     """Retrieves research papers from the CORE open-access aggregator."""
 

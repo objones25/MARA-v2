@@ -50,7 +50,28 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-@agent("pubmed")
+@agent(
+    "pubmed",
+    description="Retrieves biomedical and clinical research papers from PubMed/PMC via NCBI eUtils.",
+    capabilities=[
+        "Full-text PMC articles when available; abstract fallback otherwise",
+        "Authoritative source for clinical trials, medical case studies, and pharmacology",
+        "Strong coverage of life sciences: genomics, proteomics, neuroscience, epidemiology",
+        "Peer-reviewed content from established journals",
+    ],
+    limitations=[
+        "Limited to biomedical/life sciences — poor fit for CS, physics, or social sciences",
+        "Full text only available for open-access PMC articles",
+        "Rate-limited — avoid routing many sub-queries here simultaneously",
+        "Weak on very recent preprints (use ArXiv or S2 for cutting-edge CS/physics)",
+    ],
+    example_queries=[
+        "CRISPR-Cas9 off-target effects in vivo",
+        "efficacy of mRNA vaccines against SARS-CoV-2 variants",
+        "neural correlates of working memory in fMRI studies",
+        "antibiotic resistance mechanisms in gram-negative bacteria",
+    ],
+)
 class PubMedAgent(SpecialistAgent):
     """Retrieves research papers from PubMed / PMC via NCBI eUtils."""
 

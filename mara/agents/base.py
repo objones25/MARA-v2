@@ -40,7 +40,7 @@ class SpecialistAgent(ABC):
         """
         from mara.agents.registry import _REGISTRY
 
-        return next(k for k, v in _REGISTRY.items() if v is type(self))
+        return next(k for k, v in _REGISTRY.items() if v.cls is type(self))
 
     def model(self) -> str:
         """Return the model to use for this agent.

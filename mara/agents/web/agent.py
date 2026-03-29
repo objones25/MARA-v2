@@ -58,7 +58,28 @@ def _extract_urls(data: dict) -> list[str]:
     return urls
 
 
-@agent("web")
+@agent(
+    "web",
+    description="Retrieves live web content via Brave Search and Firecrawl scraping.",
+    capabilities=[
+        "Access to current events, news, and content not in academic databases",
+        "Industry reports, blog posts, documentation, and technical tutorials",
+        "Good for applied/commercial context around a research topic",
+        "Discovers grey literature unavailable in academic repositories",
+    ],
+    limitations=[
+        "No guarantee of peer-reviewed or scholarly content",
+        "Content quality varies widely by domain",
+        "Slower than academic APIs due to scraping overhead",
+        "Poor fit for questions requiring primary research data or clinical evidence",
+    ],
+    example_queries=[
+        "latest industry benchmarks for large language model inference speed",
+        "current regulatory landscape for autonomous vehicles",
+        "recent news on quantum computing commercialization",
+        "open-source tools for federated learning deployment",
+    ],
+)
 class WebAgent(SpecialistAgent):
     """Retrieves web content via Brave Search and Firecrawl scraping.
 

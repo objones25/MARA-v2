@@ -111,6 +111,30 @@ def test_corpus_assembler_merges_same_agent_across_sub_queries(runnable_config) 
     assert list(forest.agent_roots.keys()) == ["arxiv"]
 
 
+def test_corpus_assembler_skips_agent_with_zero_chunks(runnable_config) -> None:
+    """An AgentFindings with no chunks must not contribute a leaf to the forest tree."""
+    c = make_chunk(url="https://a.com", text="arxiv text", sub_query="q", chunk_index=0)
+    f_arxiv = make_findings(agent_type="arxiv", query="q", chunks=(c,))
+    f_pubmed = make_findings(agent_type="pubmed", query="q", chunks=())  # zero chunks
+
+    result = corpus_assembler_node({"findings": [f_arxiv, f_pubmed]}, runnable_config)
+
+    forest = result["forest_tree"]
+    assert "arxiv" in forest.agent_roots
+    assert "pubmed" not in forest.agent_roots
+    assert forest.root != ""
+
+
+def test_corpus_assembler_all_agents_zero_chunks(runnable_config) -> None:
+    """When every agent returns 0 chunks the forest tree root must be empty string."""
+    f = make_findings(agent_type="pubmed", query="q", chunks=())
+
+    result = corpus_assembler_node({"findings": [f]}, runnable_config)
+
+    assert result["flattened_chunks"] == []
+    assert result["forest_tree"].root == ""
+
+
 def test_corpus_assembler_chunk_sort_order(runnable_config) -> None:
     """Chunks within an agent are sorted by (sub_query, chunk_index)."""
     c_q2_0 = make_chunk(url="https://a.com", text="q2 first", sub_query="q2", chunk_index=0)
