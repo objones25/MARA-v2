@@ -27,6 +27,7 @@ class AgentConfig:
     rate_limit_rps: float = 0.0  # 0 = no rate limiting (use class-level default)
     max_concurrent: int = 0  # 0 = unlimited concurrent _search() calls
     retry_backoff_base: float = 0.0  # 0 = use ResearchConfig.retry_backoff_base
+    max_sub_queries: int = 0  # 0 = unlimited; >0 caps how many sub-queries the planner may route here
 
 
 @dataclass
@@ -122,6 +123,8 @@ def get_registry_summary() -> str:
         if reg.example_queries:
             examples = "; ".join(f'"{q}"' for q in reg.example_queries)
             lines.append(f"  Example queries: {examples}")
+        if reg.config.max_sub_queries > 0:
+            lines.append(f"  Max sub-queries: {reg.config.max_sub_queries}")
         sections.append("\n".join(lines))
 
     return "\n\n".join(sections)

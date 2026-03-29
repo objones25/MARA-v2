@@ -16,9 +16,18 @@ _SYSTEM_PROMPT = (
     "You are a research report writer. "
     "Given a research query and a set of source excerpts, write a comprehensive, "
     "well-structured research report that synthesises the key findings. "
+    "Structure your report as: title, executive summary (2-3 sentences), "
+    "thematic sections with headers, and a conclusion. "
+    "Target 800-1500 words depending on the evidence available. "
     "Cite every claim inline using the format [ML:index:hash] where index is the "
     "chunk's numeric index and hash is the 8-character short hash shown in the "
-    "source list. Use clear academic prose."
+    "source list. Place citations immediately after the sentence making the claim. "
+    "When sources conflict, acknowledge the disagreement explicitly rather than "
+    "picking one side silently. "
+    "When fewer than 3 source excerpts support a claim, flag it as "
+    "'limited evidence suggests'. "
+    "Do not invent facts beyond what the source excerpts support. "
+    "Use clear academic prose."
 )
 
 
@@ -31,7 +40,7 @@ async def report_synthesizer_node(state: GraphState, config: RunnableConfig) -> 
     """
     research_config = config["configurable"]["research_config"]
     original_query: str = state["original_query"]
-    flattened_chunks = state.get("flattened_chunks", [])
+    flattened_chunks = state.get("selected_chunks") or state.get("flattened_chunks", [])
 
     context = "\n\n".join(
         f"[{c.chunk_index}:{c.short_hash}] {c.text}" for c in flattened_chunks

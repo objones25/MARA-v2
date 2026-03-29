@@ -126,7 +126,7 @@ def _parse_feed(xml_text: str) -> list[dict]:
         "reinforcement learning from human feedback theory",
         "topological phases of matter",
     ],
-    config=AgentConfig(max_concurrent=1, retry_backoff_base=3.0),
+    config=AgentConfig(max_concurrent=1, retry_backoff_base=3.0, max_sub_queries=1),
 )
 class ArxivAgent(SpecialistAgent):
     """Retrieves research papers from ArXiv.

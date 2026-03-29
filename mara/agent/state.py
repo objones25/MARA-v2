@@ -25,6 +25,7 @@ class GraphState(TypedDict, total=False):
     findings: Annotated[list[AgentFindings], operator.add]
     forest_tree: ForestTree
     flattened_chunks: list[VerifiedChunk]
+    selected_chunks: list[VerifiedChunk]
     report: str
     certified_report: CertifiedReport
 

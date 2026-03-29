@@ -21,6 +21,7 @@ dependencies = [
     "pydantic-settings",
     "typer",
     "psycopg[binary]",
+    "rank-bm25",
 ]
 
 [dependency-groups]

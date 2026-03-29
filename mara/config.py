@@ -63,6 +63,7 @@ class ResearchConfig(BaseSettings):
     # Chunking
     chunk_size: int = 1000
     chunk_overlap: int = 200
+    chunk_selector_cap: int = 50
     # Runtime type is ChunkFilter (see TYPE_CHECKING import above).
     # Declared Any to avoid a module-level circular import:
     #   config → agents.filtering → agents (via __init__) → agents.base → config

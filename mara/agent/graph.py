@@ -12,6 +12,7 @@ from langgraph.graph import END, START, StateGraph
 
 from mara.agent.edges.routing import route_to_agents
 from mara.agent.nodes.certified_output import certified_output_node
+from mara.agent.nodes.chunk_selector import chunk_selector_node
 from mara.agent.nodes.corpus_assembler import corpus_assembler_node
 from mara.agent.nodes.query_planner import query_planner_node
 from mara.agent.nodes.report_synthesizer import report_synthesizer_node
@@ -27,7 +28,8 @@ def build_graph() -> StateGraph:
     Graph topology::
 
         START → query_planner → [route_to_agents] → run_agent (×N×M)
-              → corpus_assembler → report_synthesizer → certified_output → END
+              → corpus_assembler → chunk_selector → report_synthesizer
+              → certified_output → END
 
     Fan-out uses LangGraph ``Send()``; fan-in uses the ``operator.add``
     reducer on ``GraphState.findings``.
@@ -37,6 +39,7 @@ def build_graph() -> StateGraph:
     builder.add_node("query_planner", query_planner_node)
     builder.add_node("run_agent", run_agent_node)
     builder.add_node("corpus_assembler", corpus_assembler_node)
+    builder.add_node("chunk_selector", chunk_selector_node)
     builder.add_node("report_synthesizer", report_synthesizer_node)
     builder.add_node("certified_output", certified_output_node)
 
@@ -45,7 +48,8 @@ def build_graph() -> StateGraph:
         "query_planner", route_to_agents, ["run_agent", "corpus_assembler"]
     )
     builder.add_edge("run_agent", "corpus_assembler")
-    builder.add_edge("corpus_assembler", "report_synthesizer")
+    builder.add_edge("corpus_assembler", "chunk_selector")
+    builder.add_edge("chunk_selector", "report_synthesizer")
     builder.add_edge("report_synthesizer", "certified_output")
     builder.add_edge("certified_output", END)
 

@@ -225,3 +225,24 @@ class TestGetRegistrySummary:
         assert "Capabilities:" not in summary
         assert "Limitations:" not in summary
         assert "Example queries:" not in summary
+
+    def test_max_sub_queries_appears_when_set(self):
+        from mara.agents.registry import AgentConfig
+
+        @agent("capped_agent", description="Capped.", config=AgentConfig(max_sub_queries=2))
+        class CappedAgent:
+            pass
+
+        summary = get_registry_summary()
+        assert "Max sub-queries: 2" in summary
+
+    def test_max_sub_queries_omitted_when_zero(self):
+        from mara.agents.registry import AgentConfig
+
+        @agent("uncapped_agent", description="Uncapped.", config=AgentConfig(max_sub_queries=0))
+        class UncappedAgent:
+            pass
+
+        summary = get_registry_summary()
+        # The "Max sub-queries" line should not appear for this agent
+        assert "Max sub-queries:" not in summary.split("[uncapped_agent]")[1].split("\n\n")[0]
