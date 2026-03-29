@@ -28,6 +28,7 @@ def run(
     import mara.agents.biorxiv  # noqa: F401
     import mara.agents.citation_graph  # noqa: F401
     import mara.agents.core  # noqa: F401
+    import mara.agents.nber  # noqa: F401
     import mara.agents.pubmed  # noqa: F401
     import mara.agents.pwc  # noqa: F401
     import mara.agents.semantic_scholar  # noqa: F401
