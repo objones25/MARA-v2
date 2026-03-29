@@ -51,8 +51,8 @@ _PRIORITY_RE = re.compile(
     r"|\.gov$"
     r"|\.ac\.(?:uk|jp|au|de|fr|in|cn|kr|nl|nz|za|be|it|se|es|dk|fi|no|pl|at|ch|pt|ru)$"
     r"|(?:^|\.)(?:"
-    r"arxiv|pubmed|ncbi\.nlm\.nih|nature|sciencedirect|springer"
-    r"|wiley|tandfonline|jstor|researchgate|academia|semanticscholar|ieee|acm"
+    r"nature|sciencedirect|springer|wiley|tandfonline|jstor"
+    r"|researchgate|academia|ieee|acm"
     r")\.(?:org|com|gov)$"
     r")",
     re.IGNORECASE,

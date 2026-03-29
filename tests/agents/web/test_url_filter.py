@@ -42,17 +42,27 @@ class TestClassifyUrl:
         [
             ("https://www.mit.edu/research/paper", DomainTier.PRIORITY),
             ("https://cdc.gov/data", DomainTier.PRIORITY),
-            ("https://arxiv.org/abs/2301.07041", DomainTier.PRIORITY),
             ("https://pubmed.ncbi.nlm.nih.gov/12345", DomainTier.PRIORITY),
             ("https://www.nature.com/articles/123", DomainTier.PRIORITY),
-            ("https://www.semanticscholar.org/paper/x", DomainTier.PRIORITY),
             ("https://ieee.org/paper", DomainTier.PRIORITY),
             ("https://www.ox.ac.uk/research", DomainTier.PRIORITY),
         ],
-        ids=["edu", "gov", "arxiv", "pubmed", "nature", "semanticscholar", "ieee", "ac-uk"],
+        ids=["edu", "gov", "pubmed-gov", "nature", "ieee", "ac-uk"],
     )
     def test_priority_tier(self, url, expected):
         assert classify_url(url) == expected
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://arxiv.org/abs/2301.07041",
+            "https://www.semanticscholar.org/paper/x",
+        ],
+        ids=["arxiv", "semanticscholar"],
+    )
+    def test_specialist_agent_domains_are_default_tier(self, url):
+        """arxiv and semanticscholar are covered by dedicated agents; web agent treats them as DEFAULT."""
+        assert classify_url(url) == DomainTier.DEFAULT
 
     @pytest.mark.parametrize(
         "url, expected",
@@ -107,10 +117,10 @@ class TestFilterUrlsByTier:
         urls = [
             "https://example.com/article",
             "https://en.wikipedia.org/wiki/Topic",
-            "https://arxiv.org/abs/2301.07041",
+            "https://www.nature.com/articles/123",
         ]
         result = filter_urls_by_tier(urls)
-        assert result[0] == "https://arxiv.org/abs/2301.07041"
+        assert result[0] == "https://www.nature.com/articles/123"
         assert result[1] == "https://en.wikipedia.org/wiki/Topic"
         assert result[2] == "https://example.com/article"
 
@@ -135,11 +145,11 @@ class TestFilterUrlsByTier:
             "https://www.tiktok.com/@user",
             "https://example.com/page",
             "https://www.bbc.com/news",
-            "https://arxiv.org/abs/1",
+            "https://ieee.org/paper",
         ]
         result = filter_urls_by_tier(urls)
         assert "https://www.tiktok.com/@user" not in result
-        assert result[0] == "https://arxiv.org/abs/1"
+        assert result[0] == "https://ieee.org/paper"
         assert result[1] == "https://www.bbc.com/news"
         assert result[2] == "https://example.com/page"
 
@@ -159,6 +169,7 @@ class TestRankUrlsWithLlm:
             core_api_key="core-key",
             s2_api_key="s2-key",
             ncbi_api_key="ncbi-key",
+            _env_file=None,
         )
 
     async def test_returns_valid_subset_from_llm(self):
