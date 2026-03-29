@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from mara.agents.base import SpecialistAgent
     from mara.config import ResearchConfig
 
+_log = logging.getLogger(__name__)
 _REGISTRY: dict[str, type[SpecialistAgent]] = {}
 
 
@@ -24,6 +26,7 @@ def agent(name: str):
                 f"Agent name {name!r} is already registered by {_REGISTRY[name]!r}"
             )
         _REGISTRY[name] = cls
+        _log.debug("registered agent %r → %s", name, cls.__qualname__)
         return cls
 
     return _decorator
@@ -31,4 +34,6 @@ def agent(name: str):
 
 def get_agents(config: ResearchConfig) -> list[SpecialistAgent]:
     """Instantiate every registered agent with *config* and return the list."""
-    return [cls(config) for cls in _REGISTRY.values()]
+    agents = [cls(config) for cls in _REGISTRY.values()]
+    _log.debug("instantiated %d agent(s): %s", len(agents), list(_REGISTRY.keys()))
+    return agents

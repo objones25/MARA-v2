@@ -185,3 +185,43 @@ class TestEnvLoading:
         monkeypatch.setenv("MARA_BRAVE_API_KEY", "env-value")
         config = _valid(brave_api_key="kwarg-value")
         assert config.brave_api_key == "kwarg-value"
+
+
+# ---------------------------------------------------------------------------
+# Chunking defaults
+# ---------------------------------------------------------------------------
+
+
+class TestChunkingDefaults:
+    def test_chunk_size_default(self):
+        assert _valid().chunk_size == 1000
+
+    def test_chunk_overlap_default(self):
+        assert _valid().chunk_overlap == 200
+
+    def test_chunk_filter_default_is_cap_filter(self):
+        from mara.agents.filtering import CapFilter
+
+        assert isinstance(_valid().chunk_filter, CapFilter)
+
+    def test_chunk_filter_default_cap_values(self):
+        from mara.agents.filtering import CapFilter
+
+        f = _valid().chunk_filter
+        assert isinstance(f, CapFilter)
+        assert f.max_chunks_per_url == 3
+        assert f.max_chunks_per_agent == 50
+
+    def test_chunk_filter_can_be_overridden(self):
+        from mara.agents.filtering import CapFilter
+
+        custom = CapFilter(max_chunks_per_url=1, max_chunks_per_agent=10)
+        config = _valid(chunk_filter=custom)
+        assert config.chunk_filter.max_chunks_per_url == 1
+        assert config.chunk_filter.max_chunks_per_agent == 10
+
+    def test_chunk_size_can_be_overridden(self):
+        assert _valid(chunk_size=500).chunk_size == 500
+
+    def test_chunk_overlap_can_be_overridden(self):
+        assert _valid(chunk_overlap=100).chunk_overlap == 100

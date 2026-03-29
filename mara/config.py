@@ -1,7 +1,12 @@
-from typing import Literal
+from __future__ import annotations
 
-from pydantic import Field
+from typing import TYPE_CHECKING, Any, Literal
+
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from mara.agents.filtering import ChunkFilter
 
 
 class ResearchConfig(BaseSettings):
@@ -54,3 +59,20 @@ class ResearchConfig(BaseSettings):
 
     # Logging
     log_level: str = "INFO"
+
+    # Chunking
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
+    # Runtime type is ChunkFilter (see TYPE_CHECKING import above).
+    # Declared Any to avoid a module-level circular import:
+    #   config → agents.filtering → agents (via __init__) → agents.base → config
+    # The default is set lazily in _default_chunk_filter.
+    chunk_filter: Any = Field(default=None)
+
+    @model_validator(mode="after")
+    def _default_chunk_filter(self) -> "ResearchConfig":
+        if self.chunk_filter is None:
+            from mara.agents.filtering import CapFilter
+
+            self.chunk_filter = CapFilter()
+        return self
