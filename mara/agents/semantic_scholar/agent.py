@@ -40,18 +40,22 @@ def _now_iso() -> str:
 
 
 def _parse_snippet_response(data: dict) -> list[dict]:
-    """Extract url/text pairs from a S2 snippet search response dict."""
+    """Extract url/text pairs from a S2 snippet search response dict.
+
+    Each item in ``data["data"]`` has a single ``snippet`` object (not a list)
+    and identifies the paper by ``corpusId``.
+    """
     results: list[dict] = []
     for item in data.get("data", []):
         paper = item.get("paper", {})
-        paper_id = paper.get("paperId")
-        if not paper_id:
+        corpus_id = paper.get("corpusId")
+        if not corpus_id:
             continue
-        url = _S2_PAPER_URL.format(paper_id=paper_id)
-        for snippet in item.get("snippets", []):
-            text = snippet.get("text", "").strip()
-            if text:
-                results.append({"url": url, "text": text})
+        url = _S2_PAPER_URL.format(paper_id=corpus_id)
+        snippet = item.get("snippet", {})
+        text = snippet.get("text", "").strip()
+        if text:
+            results.append({"url": url, "text": text})
     return results
 
 
