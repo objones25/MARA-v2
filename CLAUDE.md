@@ -58,7 +58,7 @@ Abstract base class all agents extend. Subclasses implement only `_search()`.
 Pipeline: `_search() → _chunk() → _filter()` wired together in `_retrieve()`; `run()` calls `_retrieve()` and handles hashing.
 
 - **`_search(sub_query)`** — abstract. Fetch raw chunks. Must NOT hash.
-- **`_chunk(raw)`** — concrete, overridable. Fixed-size character sliding window (`chunk_size`, step = `chunk_size − chunk_overlap`). Returns raw unchanged for degenerate config (`size ≤ 0` or `step ≤ 0`). Agents with pre-chunked content (ArXiv, PubMed) override this.
+- **`_chunk(raw)`** — concrete, overridable. Fixed-size character sliding window (`chunk_size`, step = `chunk_size − chunk_overlap`). Returns raw unchanged for degenerate config (`size ≤ 0` or `step ≤ 0`). Agents with pre-chunked content (ArXiv, S2, PubMed) override this.
 - **`_filter(chunks, query)`** — concrete. Delegates entirely to `self.config.chunk_filter.filter(chunks, query)`.
 - **`_retrieve(sub_query)`** — concrete pipeline. Logs per-stage counts at DEBUG.
 - **`model()`** — returns `config.model_overrides.get(agent_type, config.default_model)`.
@@ -71,7 +71,7 @@ Each agent module defines its own `source_type` string constants (e.g., `LATEX`,
 | Agent      | Discovery                                         | Content                                                      |
 | ---------- | ------------------------------------------------- | ------------------------------------------------------------ |
 | **arxiv**  | `export.arxiv.org/api/query` (Atom XML, stdlib)   | `.tar.gz` → LaTeX → PDF in tarball → rendered PDF → abstract. **Note:** the `all:` prefix colon must not be percent-encoded — build the query string manually instead of passing `params=` to httpx. |
-| **s2**     | `api.semanticscholar.org/graph/v1/snippet/search` | Snippets inline; rate-limited to ≤1 RPS via `asyncio.Lock`   |
+| **s2**     | `api.semanticscholar.org/graph/v1/snippet/search` | One `snippet` object per result item (not a list); paper identified by `corpusId`. Rate-limited to ≤1 RPS via shared `asyncio.Lock` singleton. `_chunk()` passes snippets through unchanged. |
 | **pubmed** | NCBI `esearch` + `esummary`                       | PMC XML (`<sec>`) → abstract                                 |
 | **core**   | CORE API v3 `/search/works`                       | `fullText` field → download PDF → abstract                   |
 | **web**    | Brave Search API                                  | URL filter by domain tier, then Firecrawl scraping           |
