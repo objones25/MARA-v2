@@ -35,16 +35,32 @@ query_planner → Send() × N sub-queries × M agents → corpus_assembler → r
 
 Fan-out uses LangGraph's `Send()` API. Fan-in uses `operator.add` on the state's `AgentFindings` list.
 
-### Key Types (`mara/agents/types.py`)
+### `mara/agents/types.py` — Pipeline data types
 
-- **`VerifiedChunk`** — frozen dataclass: `hash`, `url`, `text`, `retrieved_at` (ISO-8601 UTC), `source_type`, `sub_query`, `chunk_index`. Hash is SHA-256 of `canonical_serialise(url, text, retrieved_at)`.
-- **`AgentFindings`** — frozen dataclass: `agent_type`, `query`, `chunks`, `merkle_root`, `merkle_tree`. Merkle root is recomputed and verified in `__post_init__`.
+Four dataclasses form the data contract between pipeline stages:
 
-### Agent System
+- **`SubQuery`** — mutable dataclass: `query: str`, `domain: str = ""`. `query` is stripped of whitespace on construction; empty/whitespace-only raises `ValueError`. `domain` is an optional hint for the query planner (e.g. `"empirical"`, `"clinical"`).
+- **`RawChunk`** — mutable dataclass: `url`, `text`, `retrieved_at`, `source_type`, `sub_query`. Returned by `_retrieve()`. No `chunk_index` — that is assigned by `run()` during enumeration. Empty/whitespace `url` or `text` raises `ValueError` at construction.
+- **`VerifiedChunk`** — frozen dataclass: all `RawChunk` fields plus `hash` (SHA-256 of `canonical_serialise(url, text, retrieved_at)`) and `chunk_index` (position within the agent's own chunk list — not a global index; the corpus assembler assigns global indices when flattening). `short_hash` property returns the first 8 hex characters for citations and logging. Produced exclusively by `SpecialistAgent.run()`.
+- **`AgentFindings`** — frozen dataclass: `agent_type`, `query`, `chunks: tuple[VerifiedChunk, ...]`, `merkle_root`, `merkle_tree`. `__post_init__` recomputes the Merkle root from `chunks` and raises `ValueError("merkle_root mismatch")` if it doesn't match. `chunk_count` property returns `len(chunks)`. A successfully constructed `AgentFindings` is already verified — no external step needed.
 
-Agents self-register via `@agent("name")` decorator in `mara/agents/registry.py`. Adding a new agent means writing the class and applying the decorator — nothing else changes.
+### `mara/agents/registry.py` — Self-registration
 
-All agents extend `SpecialistAgent` (`mara/agents/base.py`). The base `run()` method handles hashing and Merkle tree construction; subclasses only implement `_retrieve(sub_query) -> list[RawChunk]`.
+`_REGISTRY: dict[str, type[SpecialistAgent]]` is the single source of truth for all agents.
+
+- `@agent("name")` — class decorator that inserts the class into `_REGISTRY`. Raises `ValueError` if the name is already taken (no silent overwrites).
+- `get_agents(config)` — instantiates every registered class with `config` and returns the list. Called by the graph to build the agent pool at runtime.
+
+Adding a new agent requires only writing the class and applying `@agent("name")` — nothing else in the pipeline changes.
+
+### `mara/agents/base.py` — SpecialistAgent
+
+Abstract base class all agents extend. Subclasses implement only `_retrieve(sub_query) -> list[RawChunk]`.
+
+- **`__init__(self, config)`** — stores `ResearchConfig` on `self.config`.
+- **`_agent_type()`** — reverse-looks up `type(self)` in `_REGISTRY` to return the registered name. Import is deferred inside the method body to avoid a circular import between `base` and `registry`.
+- **`model()`** — returns `config.model_overrides.get(agent_type, config.default_model)`. Allows per-agent-type model selection without subclass boilerplate.
+- **`run(sub_query)`** — the only public method. Calls `_retrieve()`, hashes each `RawChunk` with `config.hash_algorithm`, assigns sequential `chunk_index` values, builds a `MerkleTree`, and returns a self-verified `AgentFindings`. Subclasses never touch hashing or tree construction.
 
 Each agent module defines its own `source_type` string constants (e.g., `LATEX`, `ABSTRACT_ONLY`).
 
@@ -60,12 +76,25 @@ Each agent module defines its own `source_type` string constants (e.g., `LATEX`,
 
 The web agent's URL filter has two stages: (1) domain tier regex (`BLOCK`/`DEFAULT`/`GOOD`/`PRIORITY`), (2) optional LLM ranking of survivors using Brave snippets already in memory (disable with `web_llm_url_ranking: False` in config).
 
-### Merkle Layer (`mara/merkle/`)
+### `mara/merkle/` — Cryptographic integrity layer
 
-- `hasher.py` — `canonical_serialise`, `hash_chunk`
-- `tree.py` — `build_merkle_tree`, `MerkleTree`
-- `proof.py` — chunk proof generation/verification
-- `forest.py` — `ForestTree`, `build_forest_tree` (meta-tree over agent sub-trees)
+Standalone sub-package with no intra-package imports. Can be imported and used independently of the agent system.
+
+**`hasher.py`**
+- `canonical_serialise(url, text, retrieved_at) -> bytes` — produces a byte-identical JSON encoding across Python versions, platforms, and locales (`sort_keys=True`, no whitespace, `ensure_ascii=True`). Any reader with the same three fields can recompute the hash independently.
+- `hash_chunk(url, text, retrieved_at, algorithm) -> str` — returns the hex digest of `canonical_serialise(...)` using the given hashlib algorithm name (always `"sha256"` in production, from `ResearchConfig.hash_algorithm`).
+
+**`tree.py`**
+- `MerkleTree` — dataclass: `leaves`, `levels` (all tree levels; index 0 = leaves, last = `[root]`), `root`, `algorithm`.
+- `build_merkle_tree(leaf_hashes, algorithm) -> MerkleTree` — balanced binary tree. Odd-length levels duplicate the last leaf. Returns an empty tree (root `""`) for zero leaves. Raises `ValueError` if any leaf hash is an empty string.
+
+**`proof.py`**
+- `generate_proof(tree, chunk_index) -> list[dict]` — returns the sibling hashes needed to reconstruct the root from a single leaf, as a list of `{"hash": ..., "direction": "left"|"right"}` steps.
+- `verify_proof(leaf_hash, proof, root, algorithm) -> bool` — recomputes the root by walking the proof steps and returns `True` if it matches. Works without access to the full tree.
+
+**`forest.py`**
+- `ForestTree` — dataclass wrapping a `MerkleTree` whose leaves are the sub-tree roots from each `AgentFindings`.
+- `build_forest_tree(findings, algorithm) -> ForestTree` — takes a sequence of `AgentFindings` (or any sequence of `(root, tree)` tuples), uses each sub-tree root as a leaf, and builds the meta-tree. Enables two-level proofs: chunk → sub-tree root, sub-tree root → forest root.
 
 ### Config (`mara/config.py`)
 
