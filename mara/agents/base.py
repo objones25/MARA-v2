@@ -167,9 +167,10 @@ class SpecialistAgent(ABC):
                     _log.debug("404 — returning empty", extra={"agent": agent_type})
                     return []
                 _log.warning(
-                    "HTTP %d on attempt %d — will retry",
+                    "HTTP %d on attempt %d — will retry: %s",
                     status,
                     attempt + 1,
+                    exc,
                     extra={"agent": agent_type},
                 )
                 last_exc = exc
@@ -291,10 +292,12 @@ class SpecialistAgent(ABC):
     async def _retrieve(self, sub_query: SubQuery) -> list[RawChunk]:
         """Pipeline: ``_fetch_with_retry()`` → ``_chunk()`` → ``_filter()``."""
         raw = await self._fetch_with_retry(sub_query)
+        agent_type = self._agent_type()
         _log.debug(
-            "search returned %d chunk(s)",
+            "%s: search returned %d chunk(s)",
+            agent_type,
             len(raw),
-            extra={"agent": self._agent_type(), "query": sub_query.query},
+            extra={"agent": agent_type, "query": sub_query.query},
         )
 
         chunks = self._chunk(raw)
@@ -303,7 +306,7 @@ class SpecialistAgent(ABC):
                 "chunked %d → %d chunk(s)",
                 len(raw),
                 len(chunks),
-                extra={"agent": self._agent_type()},
+                extra={"agent": agent_type},
             )
 
         filtered = self._filter(chunks, sub_query.query)
@@ -312,7 +315,7 @@ class SpecialistAgent(ABC):
                 "filtered %d → %d chunk(s)",
                 len(chunks),
                 len(filtered),
-                extra={"agent": self._agent_type()},
+                extra={"agent": agent_type},
             )
 
         return filtered

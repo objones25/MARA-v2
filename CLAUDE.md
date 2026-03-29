@@ -88,7 +88,7 @@ Pipeline: `_search() → _chunk() → _filter()` wired together in `_retrieve()`
    - On success: populate cache, return result.
    - `401`/`403` → logs WARNING `"auth error %d — aborting"`, re-raises immediately.
    - `404` → logs DEBUG `"404 — returning empty"`, returns `[]`.
-   - `429`/`5xx` → logs WARNING `"HTTP %d on attempt %d — will retry"`.
+   - `429`/`5xx` → logs WARNING `"HTTP %d on attempt %d — will retry: %s"` (includes the full exception string).
    - `ConnectError` / `TimeoutException` → logs WARNING with exception text.
    - Between retries: sleeps `retry_backoff_base ** attempt` seconds, logs DEBUG `"backing off %.1fs before attempt %d"`.
 4. After all attempts exhausted: logs ERROR `"all %d attempt(s) failed"`, re-raises last exception.
