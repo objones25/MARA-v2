@@ -15,13 +15,13 @@ _REQUIRED = {
 
 @pytest.fixture()
 def config() -> ResearchConfig:
-    return ResearchConfig(**_REQUIRED)
+    return ResearchConfig(**_REQUIRED, _env_file=None)
 
 
 @pytest.fixture(autouse=True)
 def clear_mara_env(monkeypatch):
     for key in _REQUIRED:
-        monkeypatch.delenv(f"MARA_{key.upper()}", raising=False)
+        monkeypatch.delenv(key.upper(), raising=False)
 
 
 @pytest.fixture(autouse=True)

@@ -18,7 +18,7 @@ _ALL_REQUIRED = {
 
 
 def _valid(**overrides) -> ResearchConfig:
-    return ResearchConfig(**{**_ALL_REQUIRED, **overrides})
+    return ResearchConfig(**{**_ALL_REQUIRED, **overrides}, _env_file=None)
 
 
 # ---------------------------------------------------------------------------
@@ -28,10 +28,10 @@ def _valid(**overrides) -> ResearchConfig:
 
 @pytest.fixture(autouse=True)
 def clear_mara_env(monkeypatch):
-    """Remove any MARA_* env vars that could satisfy required fields."""
+    """Remove any env vars that could satisfy required fields."""
     for key in _ALL_REQUIRED:
-        monkeypatch.delenv(f"MARA_{key.upper()}", raising=False)
-    monkeypatch.delenv("MARA_MODEL_OVERRIDES", raising=False)
+        monkeypatch.delenv(key.upper(), raising=False)
+    monkeypatch.delenv("MODEL_OVERRIDES", raising=False)
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +44,7 @@ class TestRequiredKeys:
     def test_missing_required_key_raises(self, missing_key):
         kwargs = {k: v for k, v in _ALL_REQUIRED.items() if k != missing_key}
         with pytest.raises(ValidationError):
-            ResearchConfig(**kwargs)
+            ResearchConfig(**kwargs, _env_file=None)
 
     def test_all_required_keys_present_succeeds(self):
         config = _valid()
@@ -166,23 +166,24 @@ class TestLogLevel:
 
 class TestEnvLoading:
     def test_config_loads_field_from_env_var(self, monkeypatch):
-        monkeypatch.setenv("MARA_BRAVE_API_KEY", "env-brave-key")
+        monkeypatch.setenv("BRAVE_API_KEY", "env-brave-key")
         config = ResearchConfig(
             hf_token="hf",
             firecrawl_api_key="fc",
             core_api_key="core",
             s2_api_key="s2",
             ncbi_api_key="ncbi",
+            _env_file=None,
         )
         assert config.brave_api_key == "env-brave-key"
 
     def test_model_overrides_parsed_from_json_env(self, monkeypatch):
-        monkeypatch.setenv("MARA_MODEL_OVERRIDES", '{"web": "small-model"}')
+        monkeypatch.setenv("MODEL_OVERRIDES", '{"web": "small-model"}')
         config = _valid()
         assert config.model_overrides == {"web": "small-model"}
 
     def test_init_kwargs_take_precedence_over_env(self, monkeypatch):
-        monkeypatch.setenv("MARA_BRAVE_API_KEY", "env-value")
+        monkeypatch.setenv("BRAVE_API_KEY", "env-value")
         config = _valid(brave_api_key="kwarg-value")
         assert config.brave_api_key == "kwarg-value"
 

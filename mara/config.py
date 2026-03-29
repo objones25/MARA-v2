@@ -11,7 +11,6 @@ if TYPE_CHECKING:
 
 class ResearchConfig(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="MARA_",
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
@@ -40,9 +39,11 @@ class ResearchConfig(BaseSettings):
 
     # Web agent
     web_max_results: int = 20
+    web_max_scrape_urls: int = 10
     web_llm_url_ranking: bool = True
     web_timeout_seconds: float = 30.0
     scrape_timeout_seconds: float = 60.0
+    brave_freshness: str = ""
 
     # Semantic Scholar
     s2_max_rps: float = 1.0

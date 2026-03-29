@@ -95,7 +95,7 @@ Standalone sub-package with no intra-package imports.
 
 ### Config (`mara/config.py`)
 
-All tunable parameters live in `ResearchConfig` (pydantic-settings, env prefix `MARA_`). Never redeclare config values as loose function arguments or defaults.
+All tunable parameters live in `ResearchConfig` (pydantic-settings, no env prefix — env vars use plain names: `BRAVE_API_KEY`, `HF_TOKEN`, etc.). Never redeclare config values as loose function arguments or defaults.
 
 `chunk_filter` is typed `Any` at runtime to avoid a circular import (`config → agents.filtering → agents.__init__ → agents.base → config`); a `TYPE_CHECKING` guard provides the `ChunkFilter` annotation for static analysis. The default `CapFilter()` is set lazily via `model_validator(mode="after")`.
 
@@ -142,10 +142,10 @@ Never let coverage drop below 98%. Enforced via `--cov-fail-under=98` in `addopt
 ## Required Environment Variables
 
 ```bash
-MARA_BRAVE_API_KEY=...       # web agent discovery
-MARA_HF_TOKEN=...            # LLM inference
-MARA_FIRECRAWL_API_KEY=...   # web agent scraping
-MARA_CORE_API_KEY=...        # CORE agent
-MARA_S2_API_KEY=...          # Semantic Scholar
-MARA_NCBI_API_KEY=...        # PubMed (raises rate limit 3 → 10 req/s)
+BRAVE_API_KEY=...       # web agent discovery
+HF_TOKEN=...            # LLM inference
+FIRECRAWL_API_KEY=...   # web agent scraping
+CORE_API_KEY=...        # CORE agent
+S2_API_KEY=...          # Semantic Scholar
+NCBI_API_KEY=...        # PubMed (raises rate limit 3 → 10 req/s)
 ```
