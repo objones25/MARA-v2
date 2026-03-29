@@ -130,6 +130,9 @@ class TestWebAgent:
 
 
 class TestAgentParams:
+    def test_s2_max_results_default(self):
+        assert _valid().s2_max_results == 20
+
     def test_s2_max_rps_default(self):
         assert _valid().s2_max_rps == pytest.approx(1.0)
 

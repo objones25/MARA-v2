@@ -46,6 +46,7 @@ class ResearchConfig(BaseSettings):
     brave_freshness: str = ""
 
     # Semantic Scholar
+    s2_max_results: int = 20
     s2_max_rps: float = 1.0
 
     # PubMed
