@@ -3,12 +3,13 @@ import pytest
 import mara.agents.core.agent as core_mod
 import mara.agents.registry as reg_mod
 from mara.agents.core.agent import COREAgent
+from mara.agents.registry import AgentRegistration
 
 
 @pytest.fixture(autouse=True)
 def register_core_agent():
     """Re-register COREAgent after isolate_registry (parent conftest) clears it."""
-    reg_mod._REGISTRY["core"] = COREAgent
+    reg_mod._REGISTRY["core"] = AgentRegistration(cls=COREAgent)
     yield
 
 

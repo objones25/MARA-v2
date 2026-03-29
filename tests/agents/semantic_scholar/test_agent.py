@@ -264,4 +264,4 @@ class TestSemanticScholarRegistration:
         import mara.agents.registry as reg_mod
 
         assert "s2" in reg_mod._REGISTRY
-        assert reg_mod._REGISTRY["s2"] is SemanticScholarAgent
+        assert reg_mod._REGISTRY["s2"].cls is SemanticScholarAgent

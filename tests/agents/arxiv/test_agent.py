@@ -581,4 +581,4 @@ class TestArxivAgentSearch:
         from mara.agents.registry import _REGISTRY
 
         assert "arxiv" in _REGISTRY
-        assert _REGISTRY["arxiv"] is ArxivAgent
+        assert _REGISTRY["arxiv"].cls is ArxivAgent

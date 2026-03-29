@@ -335,4 +335,4 @@ class TestPubMedRegistration:
         import mara.agents.registry as reg_mod
 
         assert "pubmed" in reg_mod._REGISTRY
-        assert reg_mod._REGISTRY["pubmed"] is PubMedAgent
+        assert reg_mod._REGISTRY["pubmed"].cls is PubMedAgent

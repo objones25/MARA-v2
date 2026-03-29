@@ -69,6 +69,16 @@ class TestInstantiation:
         agent_instance = cls(config)
         assert agent_instance.config is config
 
+    def test_repr_contains_class_name(self, config):
+        cls = _make_concrete("repr_agent")
+        instance = cls(config)
+        assert "ConcreteAgent" in repr(instance) or "repr_agent" in repr(instance)
+
+    def test_str_returns_agent_type(self, config):
+        cls = _make_concrete("str_agent")
+        instance = cls(config)
+        assert str(instance) == "str_agent"
+
 
 # ---------------------------------------------------------------------------
 # _agent_type()
@@ -92,9 +102,8 @@ class TestAgentType:
             async def _search(self, sub_query: SubQuery) -> list[RawChunk]:
                 return []
 
-        instance = Unregistered(config)
         with pytest.raises(StopIteration):
-            instance._agent_type()
+            Unregistered(config)
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +252,15 @@ class TestRun:
         sq = SubQuery(query="specific query")
         await instance.run(sq)
         instance._retrieve.assert_awaited_once_with(sq)
+
+    async def test_run_wraps_retrieve_exception_with_context(self, config):
+        cls = _make_concrete("run_exc_agent")
+        instance = cls(config)
+        instance._retrieve = AsyncMock(side_effect=ValueError("network down"))
+
+        with pytest.raises(RuntimeError, match="run_exc_agent") as exc_info:
+            await instance.run(SubQuery(query="q"))
+        assert isinstance(exc_info.value.__cause__, ValueError)
 
 
 # ---------------------------------------------------------------------------
@@ -592,3 +610,11 @@ class TestAcquireRateLimitSlot:
         SpecialistAgent._last_called["reset_last_agent"] = 42.0
         SpecialistAgent._reset_rate_limit_state()
         assert SpecialistAgent._last_called == {}
+
+    async def test_zero_division_in_interval_skips_rate_limit(self, config):
+        instance = _make_concrete("rl_zdiv")(config)
+        instance._get_rate_limit_interval = MagicMock(side_effect=ZeroDivisionError)
+        mock_sleep = AsyncMock()
+        with patch("mara.agents.base.asyncio.sleep", mock_sleep):
+            await instance._acquire_rate_limit_slot()
+        mock_sleep.assert_not_called()

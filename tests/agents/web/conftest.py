@@ -1,6 +1,7 @@
 import pytest
 
 import mara.agents.registry as reg_mod
+from mara.agents.registry import AgentRegistration
 from mara.agents.web.agent import WebAgent
 from mara.config import ResearchConfig
 
@@ -22,5 +23,5 @@ def config() -> ResearchConfig:
 @pytest.fixture(autouse=True)
 def register_web_agent():
     """Re-register WebAgent after isolate_registry (parent conftest) clears it."""
-    reg_mod._REGISTRY["web"] = WebAgent
+    reg_mod._REGISTRY["web"] = AgentRegistration(cls=WebAgent)
     yield

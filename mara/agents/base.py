@@ -59,6 +59,17 @@ class SpecialistAgent(ABC):
 
     def __init__(self, config: ResearchConfig) -> None:
         self.config = config
+        from mara.agents.registry import _REGISTRY
+
+        self._cached_agent_type: str = next(
+            k for k, v in _REGISTRY.items() if v.cls is type(self)
+        )
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}(model={self.model()!r})"
+
+    def __str__(self) -> str:
+        return self._cached_agent_type
 
     # ------------------------------------------------------------------
     # Rate limiting helpers
@@ -91,7 +102,14 @@ class SpecialistAgent(ABC):
         Enforces ``_get_rate_limit_interval()`` seconds between consecutive
         calls for the same agent type.  No-ops when the interval is ≤ 0.
         """
-        interval = self._get_rate_limit_interval()
+        try:
+            interval = self._get_rate_limit_interval()
+        except ZeroDivisionError:
+            _log.warning(
+                "rate limit interval division by zero — skipping rate limit",
+                extra={"agent": self._cached_agent_type},
+            )
+            return
         if interval <= 0.0:
             return
         agent_type = self._agent_type()
@@ -204,7 +222,8 @@ class SpecialistAgent(ABC):
             total,
             extra={"agent": agent_type},
         )
-        assert last_exc is not None
+        if last_exc is None:  # pragma: no cover
+            raise RuntimeError("retry loop exited without exception or result")
         raise last_exc
 
     # ------------------------------------------------------------------
@@ -212,14 +231,8 @@ class SpecialistAgent(ABC):
     # ------------------------------------------------------------------
 
     def _agent_type(self) -> str:
-        """Return the registry name for this agent class.
-
-        Late-binds the registry import to avoid circular imports between
-        base.py and registry.py.
-        """
-        from mara.agents.registry import _REGISTRY
-
-        return next(k for k, v in _REGISTRY.items() if v.cls is type(self))
+        """Return the registry name for this agent class."""
+        return self._cached_agent_type
 
     def model(self) -> str:
         """Return the model to use for this agent.
@@ -294,8 +307,7 @@ class SpecialistAgent(ABC):
         raw = await self._fetch_with_retry(sub_query)
         agent_type = self._agent_type()
         _log.debug(
-            "%s: search returned %d chunk(s)",
-            agent_type,
+            "search returned %d chunk(s)",
             len(raw),
             extra={"agent": agent_type, "query": sub_query.query},
         )
@@ -333,7 +345,12 @@ class SpecialistAgent(ABC):
             extra={"agent": agent_type},
         )
 
-        raw_chunks = await self._retrieve(sub_query)
+        try:
+            raw_chunks = await self._retrieve(sub_query)
+        except Exception as exc:
+            raise RuntimeError(
+                f"{agent_type} failed for query {sub_query.query!r}"
+            ) from exc
 
         chunks: tuple[VerifiedChunk, ...] = tuple(
             VerifiedChunk(

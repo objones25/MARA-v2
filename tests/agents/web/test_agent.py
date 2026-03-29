@@ -330,4 +330,4 @@ class TestWebAgentSearch:
         from mara.agents.registry import _REGISTRY
 
         assert "web" in _REGISTRY
-        assert _REGISTRY["web"] is WebAgent
+        assert _REGISTRY["web"].cls is WebAgent

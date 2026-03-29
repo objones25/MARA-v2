@@ -341,4 +341,4 @@ class TestCORERegistration:
         import mara.agents.registry as reg_mod
 
         assert "core" in reg_mod._REGISTRY
-        assert reg_mod._REGISTRY["core"] is COREAgent
+        assert reg_mod._REGISTRY["core"].cls is COREAgent
