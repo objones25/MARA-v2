@@ -6,11 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import mara.agents.semantic_scholar.agent as s2_mod
 from mara.agents.semantic_scholar.agent import (
     SNIPPET,
     SemanticScholarAgent,
-    _get_lock,
     _parse_snippet_response,
 )
 from mara.agents.types import RawChunk, SubQuery
@@ -135,30 +133,6 @@ class TestParseSnippetResponse:
 
 
 # ---------------------------------------------------------------------------
-# _get_lock
-# ---------------------------------------------------------------------------
-
-
-class TestGetLock:
-    def test_returns_asyncio_lock(self):
-        import asyncio
-
-        lock = _get_lock()
-        assert isinstance(lock, asyncio.Lock)
-
-    def test_returns_same_instance_on_repeat_calls(self):
-        lock1 = _get_lock()
-        lock2 = _get_lock()
-        assert lock1 is lock2
-
-    def test_reset_produces_new_instance(self):
-        lock1 = _get_lock()
-        s2_mod._S2_LOCK = None
-        lock2 = _get_lock()
-        assert lock1 is not lock2
-
-
-# ---------------------------------------------------------------------------
 # SemanticScholarAgent._chunk
 # ---------------------------------------------------------------------------
 
@@ -197,7 +171,6 @@ class TestSemanticScholarAgentSearch:
         resp = _make_http_response(data)
         mock_client = self._mock_client(resp)
         mocker.patch("mara.agents.semantic_scholar.agent.httpx.AsyncClient", return_value=mock_client)
-        mocker.patch("mara.agents.semantic_scholar.agent.asyncio.sleep", new_callable=AsyncMock)
 
         agent = _make_agent()
         sq = SubQuery(query="quantum computing")
@@ -213,7 +186,6 @@ class TestSemanticScholarAgentSearch:
         resp = _make_http_response(data)
         mock_client = self._mock_client(resp)
         mocker.patch("mara.agents.semantic_scholar.agent.httpx.AsyncClient", return_value=mock_client)
-        mocker.patch("mara.agents.semantic_scholar.agent.asyncio.sleep", new_callable=AsyncMock)
 
         result = await _make_agent()._search(SubQuery(query="test"))
         assert result[0].source_type == SNIPPET
@@ -223,7 +195,6 @@ class TestSemanticScholarAgentSearch:
         resp = _make_http_response(data)
         mock_client = self._mock_client(resp)
         mocker.patch("mara.agents.semantic_scholar.agent.httpx.AsyncClient", return_value=mock_client)
-        mocker.patch("mara.agents.semantic_scholar.agent.asyncio.sleep", new_callable=AsyncMock)
 
         query = "machine learning"
         result = await _make_agent()._search(SubQuery(query=query))
@@ -234,7 +205,6 @@ class TestSemanticScholarAgentSearch:
         resp = _make_http_response(data)
         mock_client = self._mock_client(resp)
         mocker.patch("mara.agents.semantic_scholar.agent.httpx.AsyncClient", return_value=mock_client)
-        mocker.patch("mara.agents.semantic_scholar.agent.asyncio.sleep", new_callable=AsyncMock)
 
         await _make_agent()._search(SubQuery(query="test"))
 
@@ -246,7 +216,6 @@ class TestSemanticScholarAgentSearch:
         resp = _make_http_response(data)
         mock_client = self._mock_client(resp)
         mocker.patch("mara.agents.semantic_scholar.agent.httpx.AsyncClient", return_value=mock_client)
-        mocker.patch("mara.agents.semantic_scholar.agent.asyncio.sleep", new_callable=AsyncMock)
 
         await _make_agent(s2_max_results=5)._search(SubQuery(query="test"))
 
@@ -259,29 +228,14 @@ class TestSemanticScholarAgentSearch:
         resp = _make_http_response({}, status_code=429)
         mock_client = self._mock_client(resp)
         mocker.patch("mara.agents.semantic_scholar.agent.httpx.AsyncClient", return_value=mock_client)
-        mocker.patch("mara.agents.semantic_scholar.agent.asyncio.sleep", new_callable=AsyncMock)
 
         with pytest.raises(httpx.HTTPStatusError):
             await _make_agent()._search(SubQuery(query="test"))
-
-    async def test_sleep_called_with_correct_delay(self, mocker):
-        data = _make_s2_data(("paper1", "text"))
-        resp = _make_http_response(data)
-        mock_client = self._mock_client(resp)
-        mocker.patch("mara.agents.semantic_scholar.agent.httpx.AsyncClient", return_value=mock_client)
-        mock_sleep = mocker.patch(
-            "mara.agents.semantic_scholar.agent.asyncio.sleep", new_callable=AsyncMock
-        )
-
-        await _make_agent(s2_max_rps=2.0)._search(SubQuery(query="test"))
-
-        mock_sleep.assert_called_once_with(pytest.approx(0.5))
 
     async def test_empty_data_returns_empty_list(self, mocker):
         resp = _make_http_response({"data": []})
         mock_client = self._mock_client(resp)
         mocker.patch("mara.agents.semantic_scholar.agent.httpx.AsyncClient", return_value=mock_client)
-        mocker.patch("mara.agents.semantic_scholar.agent.asyncio.sleep", new_callable=AsyncMock)
 
         result = await _make_agent()._search(SubQuery(query="test"))
         assert result == []
@@ -295,7 +249,6 @@ class TestSemanticScholarAgentSearch:
         resp = _make_http_response(data)
         mock_client = self._mock_client(resp)
         mocker.patch("mara.agents.semantic_scholar.agent.httpx.AsyncClient", return_value=mock_client)
-        mocker.patch("mara.agents.semantic_scholar.agent.asyncio.sleep", new_callable=AsyncMock)
 
         result = await _make_agent()._search(SubQuery(query="test"))
         assert len(result) == 3

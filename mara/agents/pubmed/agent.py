@@ -6,8 +6,10 @@ via efetch.  Two content strategies:
 1. PMC full text — parses ``<sec>`` XML sections (``source_type="pmc_xml"``)
 2. Abstract only — extracts ``<AbstractText>`` (``source_type="abstract_only"``)
 
-Rate limiting uses a shared asyncio.Lock so concurrent pipeline runs stay
-within NCBI's documented limit (3 req/s without key, 10 req/s with key).
+Rate limiting (3 req/s without key, 10 req/s with key) is enforced by the
+``SpecialistAgent`` base class via ``_get_rate_limit_interval()``.  Individual
+``asyncio.sleep`` calls within ``_search()`` provide intra-invocation pacing
+between the sequential eUtils requests for each paper.
 """
 
 from __future__ import annotations
@@ -33,17 +35,6 @@ _ESEARCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 _ESUMMARY_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi"
 _EFETCH_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
 _PUBMED_PAPER_URL = "https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
-
-# Shared lock — all PubMedAgent instances share one lock so concurrent
-# pipeline runs don't exceed the NCBI per-key rate limit.
-_PUBMED_LOCK: asyncio.Lock | None = None
-
-
-def _get_lock() -> asyncio.Lock:
-    global _PUBMED_LOCK
-    if _PUBMED_LOCK is None:
-        _PUBMED_LOCK = asyncio.Lock()
-    return _PUBMED_LOCK
 
 
 def _now_iso() -> str:
@@ -75,6 +66,10 @@ def _now_iso() -> str:
 class PubMedAgent(SpecialistAgent):
     """Retrieves research papers from PubMed / PMC via NCBI eUtils."""
 
+    def _get_rate_limit_interval(self) -> float:
+        """Return the minimum seconds between ``_search()`` calls (= 1 / pubmed_rate_limit_per_second)."""
+        return 1.0 / self.config.pubmed_rate_limit_per_second
+
     def _chunk(self, raw: list[RawChunk]) -> list[RawChunk]:
         """PMC sections and abstracts are pre-chunked; pass through unchanged."""
         return raw
@@ -97,23 +92,21 @@ class PubMedAgent(SpecialistAgent):
         Raises:
             httpx.HTTPStatusError: if esearch returns a non-2xx response.
         """
-        lock = _get_lock()
         retrieved_at = _now_iso()
         delay = 1.0 / self.config.pubmed_rate_limit_per_second
 
         async with httpx.AsyncClient() as client:
             # 1. esearch — discover PMIDs
-            async with lock:
-                esearch_resp = await client.get(
-                    _ESEARCH_URL,
-                    params=self._ncbi_params(
-                        db="pubmed",
-                        term=sub_query.query,
-                        retmax=self.config.pubmed_max_results,
-                        retmode="json",
-                    ),
-                )
-                await asyncio.sleep(delay)
+            esearch_resp = await client.get(
+                _ESEARCH_URL,
+                params=self._ncbi_params(
+                    db="pubmed",
+                    term=sub_query.query,
+                    retmax=self.config.pubmed_max_results,
+                    retmode="json",
+                ),
+            )
+            await asyncio.sleep(delay)
 
             esearch_resp.raise_for_status()
             pmids: list[str] = esearch_resp.json().get("esearchresult", {}).get("idlist", [])
@@ -123,16 +116,15 @@ class PubMedAgent(SpecialistAgent):
                 return []
 
             # 2. esummary — fetch metadata for all PMIDs in one request
-            async with lock:
-                esummary_resp = await client.get(
-                    _ESUMMARY_URL,
-                    params=self._ncbi_params(
-                        db="pubmed",
-                        id=",".join(pmids),
-                        retmode="json",
-                    ),
-                )
-                await asyncio.sleep(delay)
+            esummary_resp = await client.get(
+                _ESUMMARY_URL,
+                params=self._ncbi_params(
+                    db="pubmed",
+                    id=",".join(pmids),
+                    retmode="json",
+                ),
+            )
+            await asyncio.sleep(delay)
 
             esummary_resp.raise_for_status()
             summary_result = esummary_resp.json().get("result", {})
@@ -149,17 +141,16 @@ class PubMedAgent(SpecialistAgent):
 
                 if meta["pmc_id"]:
                     # PMC full text
-                    async with lock:
-                        efetch_resp = await client.get(
-                            _EFETCH_URL,
-                            params=self._ncbi_params(
-                                db="pmc",
-                                id=meta["pmc_id"],
-                                rettype="full",
-                                retmode="xml",
-                            ),
-                        )
-                        await asyncio.sleep(delay)
+                    efetch_resp = await client.get(
+                        _EFETCH_URL,
+                        params=self._ncbi_params(
+                            db="pmc",
+                            id=meta["pmc_id"],
+                            rettype="full",
+                            retmode="xml",
+                        ),
+                    )
+                    await asyncio.sleep(delay)
 
                     efetch_resp.raise_for_status()
                     sections = parse_pmc_sections(efetch_resp.text)
@@ -178,17 +169,16 @@ class PubMedAgent(SpecialistAgent):
                     )
                 else:
                     # Abstract fallback
-                    async with lock:
-                        efetch_resp = await client.get(
-                            _EFETCH_URL,
-                            params=self._ncbi_params(
-                                db="pubmed",
-                                id=pmid,
-                                rettype="abstract",
-                                retmode="xml",
-                            ),
-                        )
-                        await asyncio.sleep(delay)
+                    efetch_resp = await client.get(
+                        _EFETCH_URL,
+                        params=self._ncbi_params(
+                            db="pubmed",
+                            id=pmid,
+                            rettype="abstract",
+                            retmode="xml",
+                        ),
+                    )
+                    await asyncio.sleep(delay)
 
                     efetch_resp.raise_for_status()
                     abstract = parse_abstract_xml(efetch_resp.text)

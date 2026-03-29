@@ -1,7 +1,9 @@
 """Tests for mara/agents/base.py — SpecialistAgent."""
 
-from unittest.mock import AsyncMock
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from mara.agents.base import SpecialistAgent
@@ -377,3 +379,216 @@ class TestRetrievePipeline:
         instance._search = AsyncMock(return_value=[])
         result = await instance._retrieve(SubQuery(query="q"))
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# _fetch_with_retry()
+# ---------------------------------------------------------------------------
+
+
+def _http_error(status_code: int) -> httpx.HTTPStatusError:
+    resp = MagicMock()
+    resp.status_code = status_code
+    return httpx.HTTPStatusError("error", request=MagicMock(), response=resp)
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limit():
+    SpecialistAgent._reset_rate_limit_state()
+    yield
+    SpecialistAgent._reset_rate_limit_state()
+
+
+class TestFetchWithRetry:
+    async def test_success_returns_chunks(self, config):
+        instance = _make_concrete("fwr_ok")(config)
+        chunks = [_raw()]
+        instance._search = AsyncMock(return_value=chunks)
+        result = await instance._fetch_with_retry(SubQuery(query="q"))
+        assert result == chunks
+
+    async def test_404_returns_empty(self, config):
+        instance = _make_concrete("fwr_404")(config)
+        instance._search = AsyncMock(side_effect=_http_error(404))
+        result = await instance._fetch_with_retry(SubQuery(query="q"))
+        assert result == []
+
+    async def test_401_raises_immediately(self, config):
+        instance = _make_concrete("fwr_401")(config)
+        instance._search = AsyncMock(side_effect=_http_error(401))
+        with pytest.raises(httpx.HTTPStatusError):
+            await instance._fetch_with_retry(SubQuery(query="q"))
+        assert instance._search.await_count == 1
+
+    async def test_403_raises_immediately(self, config):
+        instance = _make_concrete("fwr_403")(config)
+        instance._search = AsyncMock(side_effect=_http_error(403))
+        with pytest.raises(httpx.HTTPStatusError):
+            await instance._fetch_with_retry(SubQuery(query="q"))
+        assert instance._search.await_count == 1
+
+    async def test_429_retries_until_max_retries_then_raises(self, config):
+        instance = _make_concrete("fwr_429")(config)
+        instance._search = AsyncMock(side_effect=_http_error(429))
+        with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(httpx.HTTPStatusError):
+                await instance._fetch_with_retry(SubQuery(query="q"))
+        assert instance._search.await_count == config.max_retries + 1
+
+    async def test_5xx_retries_until_max_retries_then_raises(self, config):
+        instance = _make_concrete("fwr_500")(config)
+        instance._search = AsyncMock(side_effect=_http_error(500))
+        with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(httpx.HTTPStatusError):
+                await instance._fetch_with_retry(SubQuery(query="q"))
+        assert instance._search.await_count == config.max_retries + 1
+
+    async def test_connect_error_retries_then_raises(self, config):
+        instance = _make_concrete("fwr_conn")(config)
+        instance._search = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(httpx.ConnectError):
+                await instance._fetch_with_retry(SubQuery(query="q"))
+        assert instance._search.await_count == config.max_retries + 1
+
+    async def test_timeout_retries_then_raises(self, config):
+        instance = _make_concrete("fwr_timeout")(config)
+        instance._search = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
+        with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(httpx.TimeoutException):
+                await instance._fetch_with_retry(SubQuery(query="q"))
+        assert instance._search.await_count == config.max_retries + 1
+
+    async def test_backoff_sleep_values_match_config(self, config):
+        instance = _make_concrete("fwr_backoff")(config)
+        instance._search = AsyncMock(side_effect=_http_error(503))
+        mock_sleep = AsyncMock()
+        with patch("mara.agents.base.asyncio.sleep", mock_sleep):
+            with pytest.raises(httpx.HTTPStatusError):
+                await instance._fetch_with_retry(SubQuery(query="q"))
+        expected = [
+            ((config.retry_backoff_base**i,), {})
+            for i in range(config.max_retries)
+        ]
+        actual = [(call.args, call.kwargs) for call in mock_sleep.call_args_list]
+        assert actual == expected
+
+    async def test_succeeds_after_transient_failure(self, config):
+        instance = _make_concrete("fwr_transient")(config)
+        ok_chunk = _raw()
+        instance._search = AsyncMock(
+            side_effect=[_http_error(429), [ok_chunk]]
+        )
+        with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
+            result = await instance._fetch_with_retry(SubQuery(query="q"))
+        assert result == [ok_chunk]
+        assert instance._search.await_count == 2
+
+    async def test_cache_hit_skips_search(self):
+        from mara.agents.cache import InMemoryCache
+        from mara.config import ResearchConfig
+
+        cache = InMemoryCache()
+        cfg = ResearchConfig(**_REQUIRED, search_cache=cache, _env_file=None)
+        cls = _make_concrete("fwr_cache_hit")
+        instance = cls(cfg)
+        cached_chunks = [_raw(text="cached")]
+        await cache.set("fwr_cache_hit", "q", cached_chunks)
+
+        instance._search = AsyncMock(return_value=[_raw(text="fresh")])
+        result = await instance._fetch_with_retry(SubQuery(query="q"))
+
+        assert result == cached_chunks
+        instance._search.assert_not_awaited()
+
+    async def test_cache_miss_populates_cache(self):
+        from mara.agents.cache import InMemoryCache
+        from mara.config import ResearchConfig
+
+        cache = InMemoryCache()
+        cfg = ResearchConfig(**_REQUIRED, search_cache=cache, _env_file=None)
+        cls = _make_concrete("fwr_cache_miss")
+        instance = cls(cfg)
+        fresh = [_raw(text="from network")]
+        instance._search = AsyncMock(return_value=fresh)
+
+        await instance._fetch_with_retry(SubQuery(query="q"))
+
+        stored = await cache.get("fwr_cache_miss", "q")
+        assert stored == fresh
+
+    async def test_cache_not_populated_on_error(self):
+        from mara.agents.cache import InMemoryCache
+        from mara.config import ResearchConfig
+
+        cache = InMemoryCache()
+        cfg = ResearchConfig(**_REQUIRED, search_cache=cache, _env_file=None)
+        cls = _make_concrete("fwr_cache_err")
+        instance = cls(cfg)
+        instance._search = AsyncMock(side_effect=_http_error(500))
+
+        with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(httpx.HTTPStatusError):
+                await instance._fetch_with_retry(SubQuery(query="q"))
+
+        assert await cache.get("fwr_cache_err", "q") is None
+
+
+# ---------------------------------------------------------------------------
+# _acquire_rate_limit_slot() / _get_lock() / _reset_rate_limit_state()
+# ---------------------------------------------------------------------------
+
+
+class TestAcquireRateLimitSlot:
+    async def test_no_sleep_when_interval_zero(self, config):
+        instance = _make_concrete("rl_zero")(config)
+        mock_sleep = AsyncMock()
+        with patch("mara.agents.base.asyncio.sleep", mock_sleep):
+            await instance._acquire_rate_limit_slot()
+        mock_sleep.assert_not_called()
+
+    async def test_no_sleep_on_first_call_with_positive_interval(self, config):
+        instance = _make_concrete("rl_first")(config)
+        instance._get_rate_limit_interval = lambda: 1.0
+        mock_sleep = AsyncMock()
+        with patch("mara.agents.base.asyncio.sleep", mock_sleep), \
+             patch("mara.agents.base.time.monotonic", return_value=1000.0):
+            await instance._acquire_rate_limit_slot()
+        mock_sleep.assert_not_called()
+
+    async def test_sleep_called_when_within_interval(self, config):
+        instance = _make_concrete("rl_sleep")(config)
+        instance._get_rate_limit_interval = lambda: 2.0
+        agent_type = instance._agent_type()
+        SpecialistAgent._last_called[agent_type] = 99.5
+
+        mock_sleep = AsyncMock()
+        with patch("mara.agents.base.asyncio.sleep", mock_sleep), \
+             patch("mara.agents.base.time.monotonic", return_value=100.0):
+            await instance._acquire_rate_limit_slot()
+        mock_sleep.assert_awaited_once_with(pytest.approx(1.5))
+
+    def test_get_lock_creates_asyncio_lock(self, config):
+        lock = SpecialistAgent._get_lock("lock_agent")
+        assert isinstance(lock, asyncio.Lock)
+
+    def test_get_lock_same_type_returns_same_instance(self, config):
+        lock_a = SpecialistAgent._get_lock("same_type")
+        lock_b = SpecialistAgent._get_lock("same_type")
+        assert lock_a is lock_b
+
+    def test_get_lock_different_types_different_locks(self, config):
+        lock_x = SpecialistAgent._get_lock("type_x")
+        lock_y = SpecialistAgent._get_lock("type_y")
+        assert lock_x is not lock_y
+
+    def test_reset_clears_locks(self, config):
+        SpecialistAgent._get_lock("reset_lock_agent")
+        assert "reset_lock_agent" in SpecialistAgent._locks
+        SpecialistAgent._reset_rate_limit_state()
+        assert SpecialistAgent._locks == {}
+
+    def test_reset_clears_last_called(self, config):
+        SpecialistAgent._last_called["reset_last_agent"] = 42.0
+        SpecialistAgent._reset_rate_limit_state()
+        assert SpecialistAgent._last_called == {}

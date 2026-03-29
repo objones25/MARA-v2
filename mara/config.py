@@ -6,6 +6,7 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
+    from mara.agents.cache import SearchCache
     from mara.agents.filtering import ChunkFilter
 
 
@@ -45,6 +46,10 @@ class ResearchConfig(BaseSettings):
     scrape_timeout_seconds: float = 60.0
     brave_freshness: str = ""
 
+    # Retry / back-off
+    max_retries: int = 3
+    retry_backoff_base: float = 2.0
+
     # Semantic Scholar
     s2_max_results: int = 20
     s2_max_rps: float = 1.0
@@ -68,13 +73,20 @@ class ResearchConfig(BaseSettings):
     # Runtime type is ChunkFilter (see TYPE_CHECKING import above).
     # Declared Any to avoid a module-level circular import:
     #   config → agents.filtering → agents (via __init__) → agents.base → config
-    # The default is set lazily in _default_chunk_filter.
+    # The default is set lazily in _set_defaults.
     chunk_filter: Any = Field(default=None)
+    # Runtime type is SearchCache (see TYPE_CHECKING import above).
+    # Same lazy-default pattern as chunk_filter.
+    search_cache: Any = Field(default=None)
 
     @model_validator(mode="after")
-    def _default_chunk_filter(self) -> "ResearchConfig":
+    def _set_defaults(self) -> "ResearchConfig":
         if self.chunk_filter is None:
             from mara.agents.filtering import CapFilter
 
             self.chunk_filter = CapFilter()
+        if self.search_cache is None:
+            from mara.agents.cache import NoOpCache
+
+            self.search_cache = NoOpCache()
         return self

@@ -7,13 +7,11 @@ three-level fallback chain:
 2. PDF download via ``downloadUrl`` + pypdf         (``source_type="pdf_downloaded"``)
 3. ``abstract`` field                               (``source_type="abstract_only"``)
 
-Rate limiting uses a shared asyncio.Lock so concurrent pipeline runs respect
-CORE's documented API rate limits.
+Rate limiting is handled by the ``SpecialistAgent`` base class.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -32,17 +30,6 @@ ABSTRACT_ONLY = "abstract_only"
 
 _CORE_SEARCH_URL = "https://api.core.ac.uk/v3/search/works"
 _CORE_PAPER_URL = "https://core.ac.uk/display/{id}"
-
-# Shared lock — all COREAgent instances share one lock so concurrent
-# pipeline runs stay within CORE's API rate limits.
-_CORE_LOCK: asyncio.Lock | None = None
-
-
-def _get_lock() -> asyncio.Lock:
-    global _CORE_LOCK
-    if _CORE_LOCK is None:
-        _CORE_LOCK = asyncio.Lock()
-    return _CORE_LOCK
 
 
 def _now_iso() -> str:
@@ -91,18 +78,16 @@ class COREAgent(SpecialistAgent):
         Raises:
             httpx.HTTPStatusError: if the CORE search API returns a non-2xx response.
         """
-        lock = _get_lock()
         retrieved_at = _now_iso()
         headers = {"Authorization": f"Bearer {self.config.core_api_key}"}
 
         async with httpx.AsyncClient(follow_redirects=True) as client:
             # Discover papers
-            async with lock:
-                search_resp = await client.get(
-                    _CORE_SEARCH_URL,
-                    params={"q": sub_query.query, "limit": self.config.core_max_results},
-                    headers=headers,
-                )
+            search_resp = await client.get(
+                _CORE_SEARCH_URL,
+                params={"q": sub_query.query, "limit": self.config.core_max_results},
+                headers=headers,
+            )
             search_resp.raise_for_status()
 
             results: list[dict] = search_resp.json().get("results", [])

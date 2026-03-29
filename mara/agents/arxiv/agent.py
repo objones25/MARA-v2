@@ -34,18 +34,6 @@ _log = logging.getLogger(__name__)
 _ATOM_NS = "http://www.w3.org/2005/Atom"
 _API_URL = "https://export.arxiv.org/api/query"
 _RATE_LIMIT_DELAY = 3.0  # seconds between per-paper content requests
-_DISCOVERY_DELAY = 3.0   # seconds between concurrent discovery calls
-
-# Shared lock — serialises discovery calls across all ArxivAgent instances so
-# concurrent pipeline runs stay within ArXiv's documented rate limits.
-_ARXIV_LOCK: asyncio.Lock | None = None
-
-
-def _get_lock() -> asyncio.Lock:
-    global _ARXIV_LOCK
-    if _ARXIV_LOCK is None:
-        _ARXIV_LOCK = asyncio.Lock()
-    return _ARXIV_LOCK
 
 
 def _versioned_id_from_url(id_url: str) -> str:
@@ -150,6 +138,10 @@ class ArxivAgent(SpecialistAgent):
     sliding-window splitter only to PDF and abstract chunks.
     """
 
+    # Gate every _search() entry: 3 s between discovery calls across all
+    # ArxivAgent instances so concurrent sub-query runs respect ArXiv's limits.
+    _rate_limit_interval: float = _RATE_LIMIT_DELAY
+
     def _chunk(self, raw: list[RawChunk]) -> list[RawChunk]:
         """Bypass sliding window for LaTeX sections; delegate the rest to super."""
         latex = [c for c in raw if c.source_type == LATEX]
@@ -162,21 +154,17 @@ class ArxivAgent(SpecialistAgent):
         Raises:
             httpx.HTTPError: if the ArXiv API discovery call fails.
         """
-        lock = _get_lock()
         headers = {"User-Agent": "MARA-research-agent/0.1 (https://github.com/mara; mailto:contact@mara.local)"}
         async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
-            # Discovery — serialised via lock to avoid 429s from concurrent
-            # sub-query runs. Build the query string manually so the colon in
-            # "all:<term>" is NOT percent-encoded (ArXiv rejects %3A).
+            # Build the query string manually so the colon in "all:<term>"
+            # is NOT percent-encoded (ArXiv rejects %3A).
             qs = (
                 f"search_query=all:{urllib.parse.quote(sub_query.query)}"
                 f"&max_results={self.config.arxiv_max_results}"
                 f"&sortBy=relevance"
             )
-            async with lock:
-                resp = await client.get(f"{_API_URL}?{qs}")
-                resp.raise_for_status()
-                await asyncio.sleep(_DISCOVERY_DELAY)
+            resp = await client.get(f"{_API_URL}?{qs}")
+            resp.raise_for_status()
             entries = _parse_feed(resp.text)
             _log.debug(
                 "arxiv discovery: %d entry(ies) for %r",

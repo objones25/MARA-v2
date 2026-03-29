@@ -6,13 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-import mara.agents.core.agent as core_mod
 from mara.agents.core.agent import (
     ABSTRACT_ONLY,
     FULLTEXT,
     PDF_DOWNLOADED,
     COREAgent,
-    _get_lock,
 )
 from mara.agents.types import RawChunk, SubQuery
 
@@ -98,30 +96,6 @@ def _mock_client(responses: list[MagicMock]) -> AsyncMock:
     client.__aexit__ = AsyncMock(return_value=None)
     client.get = AsyncMock(side_effect=responses)
     return client
-
-
-# ---------------------------------------------------------------------------
-# _get_lock
-# ---------------------------------------------------------------------------
-
-
-class TestGetLock:
-    def test_returns_asyncio_lock(self):
-        import asyncio
-
-        lock = _get_lock()
-        assert isinstance(lock, asyncio.Lock)
-
-    def test_returns_same_instance_on_repeat_calls(self):
-        lock1 = _get_lock()
-        lock2 = _get_lock()
-        assert lock1 is lock2
-
-    def test_reset_produces_new_instance(self):
-        lock1 = _get_lock()
-        core_mod._CORE_LOCK = None
-        lock2 = _get_lock()
-        assert lock1 is not lock2
 
 
 # ---------------------------------------------------------------------------
