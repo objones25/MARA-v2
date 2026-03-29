@@ -70,7 +70,7 @@ Each agent module defines its own `source_type` string constants (e.g., `LATEX`,
 
 | Agent      | Discovery                                         | Content                                                      |
 | ---------- | ------------------------------------------------- | ------------------------------------------------------------ |
-| **arxiv**  | `export.arxiv.org/api/query` (Atom XML, stdlib)   | `.tar.gz` → LaTeX → PDF in tarball → rendered PDF → abstract |
+| **arxiv**  | `export.arxiv.org/api/query` (Atom XML, stdlib)   | `.tar.gz` → LaTeX → PDF in tarball → rendered PDF → abstract. **Note:** the `all:` prefix colon must not be percent-encoded — build the query string manually instead of passing `params=` to httpx. |
 | **s2**     | `api.semanticscholar.org/graph/v1/snippet/search` | Snippets inline; rate-limited to ≤1 RPS via `asyncio.Lock`   |
 | **pubmed** | NCBI `esearch` + `esummary`                       | PMC XML (`<sec>`) → abstract                                 |
 | **core**   | CORE API v3 `/search/works`                       | `fullText` field → download PDF → abstract                   |

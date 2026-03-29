@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import urllib.parse
 import xml.etree.ElementTree as ET
 
 import httpx
@@ -128,16 +129,16 @@ class ArxivAgent(SpecialistAgent):
         Raises:
             httpx.HTTPError: if the ArXiv API discovery call fails.
         """
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # Discovery
-            resp = await client.get(
-                _API_URL,
-                params={
-                    "search_query": f"all:{sub_query.query}",
-                    "max_results": self.config.arxiv_max_results,
-                    "sortBy": "relevance",
-                },
+        headers = {"User-Agent": "MARA-research-agent/0.1 (https://github.com/mara; mailto:contact@mara.local)"}
+        async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
+            # Discovery — build the query string manually so the colon in
+            # "all:<term>" is NOT percent-encoded (ArXiv rejects %3A).
+            qs = (
+                f"search_query=all:{urllib.parse.quote(sub_query.query)}"
+                f"&max_results={self.config.arxiv_max_results}"
+                f"&sortBy=relevance"
             )
+            resp = await client.get(f"{_API_URL}?{qs}")
             resp.raise_for_status()
             entries = _parse_feed(resp.text)
             _log.debug(
