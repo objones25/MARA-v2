@@ -14,6 +14,7 @@ The `mara/agent/` package implements a LangGraph-based research pipeline that or
    - [Query Planner Node](#query-planner-node)
    - [Run Agent Node](#run-agent-node)
    - [Corpus Assembler Node](#corpus-assembler-node)
+   - [Chunk Selector Node](#chunk-selector-node)
    - [Report Synthesizer Node](#report-synthesizer-node)
    - [Certified Output Node](#certified-output-node)
 6. [Configuration Integration](#configuration-integration)
@@ -97,6 +98,16 @@ The agent pipeline transforms a user's research query into a cryptographically v
                                   │
                                   ▼
 ┌─────────────────────────────────────────────────────────────────────┐
+│ chunk_selector_node                                                 │
+│ ────────────────────                                                │
+│ • Deduplicate chunks by hash                                        │
+│ • BM25Plus-rank chunks against original_query                       │
+│ • Cap at chunk_selector_cap (default 50)                            │
+│ • Outputs: selected_chunks                                          │
+└─────────────────────────────────────────────────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────────────┐
 │ report_synthesizer_node                                             │
 │ ──────────────────────────                                          │
 │ • Format chunks as [index:short_hash] text                          │
@@ -151,6 +162,11 @@ class GraphState(TypedDict, total=False):
     """All chunks in sorted agent order with global indices
     (set by corpus_assembler)."""
 
+    selected_chunks: list[VerifiedChunk]
+    """Deduplicated, BM25-ranked subset of flattened_chunks, capped at
+    chunk_selector_cap. Preferred by report_synthesizer over flattened_chunks.
+    (set by chunk_selector)."""
+
     report: str
     """The narrative research report with inline citations
     (set by report_synthesizer)."""
@@ -186,13 +202,13 @@ def build_graph() -> StateGraph:
     Graph topology::
 
         START → query_planner → [route_to_agents] → run_agent (×N×M)
-              → corpus_assembler → report_synthesizer → certified_output → END
+              → corpus_assembler → chunk_selector → report_synthesizer → certified_output → END
     """
 ```
 
 **Topology Notes:**
 
-- **Linear baseline:** START → query_planner → route_to_agents → corpus_assembler → report_synthesizer → certified_output → END
+- **Linear baseline:** START → query_planner → route_to_agents → corpus_assembler → chunk_selector → report_synthesizer → certified_output → END
 - **Parallel fan-out:** route_to_agents emits multiple `Send("run_agent", ...)` invocations
 - **Parallel fan-in:** LangGraph merges all `run_agent` results using the `operator.add` reducer on `GraphState.findings`
 - **Direct bypass:** When route_to_agents has no sub-queries or agents, it returns the string `"corpus_assembler"` (a bypass edge), skipping the run_agent node entirely
@@ -204,7 +220,8 @@ def build_graph() -> StateGraph:
 | START              | query_planner                | Direct      |                                     |
 | query_planner      | run_agent / corpus_assembler | Conditional | Decided by route_to_agents function |
 | run_agent          | corpus_assembler             | Direct      | All parallel invocations converge   |
-| corpus_assembler   | report_synthesizer           | Direct      |                                     |
+| corpus_assembler   | chunk_selector               | Direct      |                                     |
+| chunk_selector     | report_synthesizer           | Direct      |                                     |
 | report_synthesizer | certified_output             | Direct      |                                     |
 | certified_output   | END                          | Direct      |                                     |
 
@@ -319,17 +336,20 @@ async def query_planner_node(state: GraphState, config: RunnableConfig) -> dict:
 ```text
 You are a research query decomposition specialist.
 
-Given a research query, decompose it into 3-5 focused sub-queries that together
-cover the topic comprehensively. For each sub-query, assign the single most
-appropriate agent from the roster below.
+Given a research query, decompose it into 3-5 focused sub-queries that together cover the topic comprehensively. For each sub-query, assign the single most appropriate agent from the roster below.
+
+Routing constraints:
+- Respect each agent's "Max sub-queries" limit shown in the roster; never exceed it for that agent
+- Each sub-query must focus on a DISTINCT aspect of the research topic; do not generate two queries with overlapping scope
+- Use concrete, searchable phrases (e.g. "machine learning classification performance", not "AI classification")
+- For cross-domain topics, assign different agents to cover different angles (e.g. pubmed for clinical evidence, arxiv for mathematical foundations)
 
 Available agents:
 {agent_roster}
 
 Return a JSON array of objects with "query", "domain", and "agent" fields.
 - "query": the focused sub-question (non-empty string)
-- "domain": a short topic hint, e.g. "empirical", "clinical", "theoretical"
-            (may be empty)
+- "domain": a short topic hint, e.g. "empirical", "clinical", "theoretical" (may be empty)
 - "agent": the agent name from the roster above that best fits this sub-query
 
 Example:
@@ -446,6 +466,46 @@ After corpus assembly:
 
 ---
 
+### Chunk Selector Node
+
+**File:** `mara/agent/nodes/chunk_selector.py`
+
+**Purpose:** Deduplicate and rank the assembled chunk corpus before passing it to the report synthesizer, preventing LLM context overflow.
+
+**Signature:**
+
+```python
+def chunk_selector_node(state: GraphState, config: RunnableConfig) -> dict:
+    """Deduplicate, rank, and cap the chunk corpus.
+
+    Reads flattened_chunks from state. Deduplicates by hash, ranks using
+    BM25Plus against the original_query, caps at chunk_selector_cap, and
+    writes selected_chunks.
+    """
+```
+
+**Algorithm:**
+
+1. **Extract:** `original_query` and `flattened_chunks` from state
+2. **Deduplicate:** Remove chunks with duplicate hashes (keep first occurrence)
+3. **Rank:** Score deduplicated chunks with BM25Plus against `original_query` (via `score_chunks_bm25` in `mara/agent/scoring.py`)
+4. **Cap:** Take the top `research_config.chunk_selector_cap` (default 50) chunks by score
+5. **Return:** `{"selected_chunks": selected}`
+
+**Why BM25Plus?**
+
+BM25Plus uses `log((N+1)/df)` for IDF, which is always non-negative. This avoids the zero/negative scores that `BM25Okapi` produces for small corpora (e.g., a single chunk, or terms appearing in exactly half the corpus).
+
+**Configuration:**
+
+- `chunk_selector_cap` (int, default 50) — maximum chunks passed to the synthesizer; set via `ResearchConfig(chunk_selector_cap=N)`
+
+**Logging:**
+
+- DEBUG: `"chunk_selector: {N_in} → {N_dedup} after dedup → {N_out} selected (cap={cap})"`
+
+---
+
 ### Report Synthesizer Node
 
 **File:** `mara/agent/nodes/report_synthesizer.py`
@@ -466,7 +526,7 @@ async def report_synthesizer_node(state: GraphState, config: RunnableConfig) -> 
 
 **Algorithm:**
 
-1. **Extract:** `original_query` and `flattened_chunks` from state
+1. **Extract:** `original_query` and chunks from state — prefers `selected_chunks` (set by chunk_selector), falls back to `flattened_chunks` when `selected_chunks` is absent
 2. **Format context:** For each chunk, produce `[{index}:{short_hash}] {text}`
 3. **Join context:** All formatted chunks separated by `\n\n`
 4. **Prepare user message:** `"Research query: {original_query}\n\nSource excerpts:\n{context}"`
@@ -477,11 +537,15 @@ async def report_synthesizer_node(state: GraphState, config: RunnableConfig) -> 
 **System Prompt:**
 
 ```text
-You are a research report writer. Given a research query and a set of source
-excerpts, write a comprehensive, well-structured research report that
-synthesises the key findings. Cite every claim inline using the format
-[ML:index:hash] where index is the chunk's numeric index and hash is the
-8-character short hash shown in the source list. Use clear academic prose.
+You are a research report writer. Given a research query and a set of source excerpts, write a comprehensive, well-structured research report.
+
+Structure: title, executive summary (2-3 sentences), thematic sections with headers, conclusion.
+Length: 800-1500 words depending on evidence available.
+Citations: cite every claim inline using [ML:index:hash] immediately after the sentence making the claim, where index is the chunk's numeric index and hash is the 8-character short hash from the source list.
+Conflicting sources: acknowledge disagreement explicitly rather than picking one side silently.
+Thin evidence: if fewer than 3 chunks support a claim, flag it as "limited evidence".
+Do not invent facts not present in the source excerpts.
+Use clear academic prose.
 ```
 
 **Citation Format Hint:**
@@ -611,18 +675,19 @@ research_config = config["configurable"]["research_config"]
 
 **Key fields relevant to the pipeline:**
 
-| Field             | Type                      | Default                              | Used By                                  |
-| ----------------- | ------------------------- | ------------------------------------ | ---------------------------------------- |
-| `default_model`   | str                       | `"Qwen/Qwen3-30B-A3B-Instruct-2507"` | query_planner, report_synthesizer        |
-| `model_overrides` | dict[str, str]            | `{}`                                 | agents (via `agent.model()`)             |
-| `llm_provider`    | str                       | `"featherless-ai"`                   | query_planner, report_synthesizer        |
-| `llm_temperature` | float                     | `0.7`                                | query_planner, report_synthesizer        |
-| `llm_top_p`       | float                     | `0.8`                                | query_planner, report_synthesizer        |
-| `llm_top_k`       | int                       | `20`                                 | query_planner, report_synthesizer        |
-| `llm_max_tokens`  | int                       | `16384`                              | query_planner, report_synthesizer        |
-| `hash_algorithm`  | Literal["sha256"]         | `"sha256"`                           | corpus_assembler                         |
-| `chunk_filter`    | ChunkFilter (runtime Any) | `CapFilter()`                        | agents (via `agent._filter()`)           |
-| `search_cache`    | SearchCache (runtime Any) | `NoOpCache()`                        | agents (via `agent._fetch_with_retry()`) |
+| Field                | Type                      | Default                              | Used By                                  |
+| -------------------- | ------------------------- | ------------------------------------ | ---------------------------------------- |
+| `default_model`      | str                       | `"Qwen/Qwen3-30B-A3B-Instruct-2507"` | query_planner, report_synthesizer        |
+| `model_overrides`    | dict[str, str]            | `{}`                                 | agents (via `agent.model()`)             |
+| `llm_provider`       | str                       | `"featherless-ai"`                   | query_planner, report_synthesizer        |
+| `llm_temperature`    | float                     | `0.7`                                | query_planner, report_synthesizer        |
+| `llm_top_p`          | float                     | `0.8`                                | query_planner, report_synthesizer        |
+| `llm_top_k`          | int                       | `20`                                 | query_planner, report_synthesizer        |
+| `llm_max_tokens`     | int                       | `16384`                              | query_planner, report_synthesizer        |
+| `hash_algorithm`     | Literal["sha256"]         | `"sha256"`                           | corpus_assembler                         |
+| `chunk_selector_cap` | int                       | `50`                                 | chunk_selector                           |
+| `chunk_filter`       | ChunkFilter (runtime Any) | `CapFilter()`                        | agents (via `agent._filter()`)           |
+| `search_cache`       | SearchCache (runtime Any) | `NoOpCache()`                        | agents (via `agent._fetch_with_retry()`) |
 
 **Lazy Defaults:**
 
@@ -797,12 +862,13 @@ from mara.agent.state import GraphState, AgentRunState
 from mara.agent.nodes.query_planner import query_planner_node
 from mara.agent.nodes.run_agent import run_agent_node
 from mara.agent.nodes.corpus_assembler import corpus_assembler_node
+from mara.agent.nodes.chunk_selector import chunk_selector_node
 from mara.agent.nodes.report_synthesizer import report_synthesizer_node
 from mara.agent.nodes.certified_output import certified_output_node
 from mara.agent.edges.routing import route_to_agents
 ```
 
-**Rationale:** All node dependencies are satisfied.
+**Rationale:** All node dependencies are satisfied. `mara/agent/scoring.py` is a dependency of `chunk_selector.py`.
 
 ### 6. Graph
 
@@ -851,7 +917,8 @@ The `mara/agent/` package orchestrates a multi-stage research pipeline:
 2. **Parallel routing** sends sub-queries to appropriate agents (directed) or all agents (broadcast fallback)
 3. **Parallel execution** runs agents in parallel with error isolation
 4. **Corpus assembly** merges findings into a unified Merkle forest
-5. **Report synthesis** calls the LLM to create a narrative with inline citations
-6. **Output certification** parses citations and produces a `CertifiedReport` with full provenance
+5. **Chunk selection** deduplicates, BM25Plus-ranks, and caps the corpus before synthesis
+6. **Report synthesis** calls the LLM to create a narrative with inline citations
+7. **Output certification** parses citations and produces a `CertifiedReport` with full provenance
 
 All state flows through a single `GraphState` dict. All nodes are async-compatible and LangGraph-integrated. Configuration is threaded through `RunnableConfig`. Errors are logged but do not crash the pipeline. Cryptographic verification happens at construction time, not after.

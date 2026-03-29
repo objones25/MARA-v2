@@ -33,7 +33,7 @@ MARA is a multi-agent research pipeline that produces cryptographically verifiab
 ### Data Flow
 
 ```
-query_planner → [route_to_agents] → run_agent (×N) → corpus_assembler → report_synthesizer → certified_output
+query_planner → [route_to_agents] → run_agent (×N) → corpus_assembler → chunk_selector → report_synthesizer → certified_output
 ```
 
 Fan-out uses LangGraph's `Send()` API. Fan-in uses `operator.add` on the state's `AgentFindings` list. The query planner assigns each sub-query to a specific agent (`SubQuery.agent`); routing is **directed** (1 Send per sub-query) when the LLM names a registered agent, or **broadcast** (1 Send per agent) as a fallback.
@@ -50,11 +50,11 @@ Fan-out uses LangGraph's `Send()` API. Fan-in uses `operator.add` on the state's
 
 `_REGISTRY: dict[str, AgentRegistration]` is the single source of truth for all agents.
 
-- **`AgentConfig`** — dataclass: `api_key: str = ""`, `max_results: int = 20`, `rate_limit_rps: float = 0.0`. Holds per-agent tunable parameters. Each `AgentRegistration` has a default `config` field; runtime overrides come from `ResearchConfig.agent_config_overrides`.
+- **`AgentConfig`** — dataclass: `api_key: str = ""`, `max_results: int = 20`, `rate_limit_rps: float = 0.0`, `max_concurrent: int = 0`, `retry_backoff_base: float = 0.0`, `max_sub_queries: int = 0`. `max_sub_queries`: 0 = unlimited; >0 caps how many sub-queries the planner may route to this agent. Holds per-agent tunable parameters. Each `AgentRegistration` has a default `config` field; runtime overrides come from `ResearchConfig.agent_config_overrides`.
 - **`AgentRegistration`** — dataclass wrapping `cls`, `description`, `capabilities: list[str]`, `limitations: list[str]`, `example_queries: list[str]`, `config: AgentConfig`. All list fields default to `[]`. The `config` field holds the agent's default rate limits and per-agent settings.
 - `@agent("name", description=..., capabilities=..., limitations=..., example_queries=..., config=...)` — class decorator that inserts an `AgentRegistration` into `_REGISTRY`. The `config` parameter (optional) sets the agent's default `AgentConfig`. Raises `ValueError` if the name is already taken.
 - `get_agents(config)` — instantiates every registered class (`reg.cls`) with both `config` (the `ResearchConfig`) and the agent's `AgentConfig` (from `agent_config_overrides` or `reg.config`), returning the list.
-- `get_registry_summary()` — returns a formatted multi-line string of the agent roster, injected into the query planner system prompt so the LLM can route sub-queries intelligently.
+- `get_registry_summary()` — returns a formatted multi-line string of the agent roster, injected into the query planner system prompt so the LLM can route sub-queries intelligently. Emits `  Max sub-queries: N` per agent when `AgentConfig.max_sub_queries > 0`.
 
 Adding a new agent requires writing the class, applying `@agent("name", ..., config=AgentConfig(...))`, and passing the agent to the constructor with both `ResearchConfig` and `AgentConfig` arguments — the pipeline wires them automatically via `get_agents()`.
 
@@ -109,13 +109,13 @@ Each agent module defines its own `source_type` string constants (e.g., `LATEX`,
 
 #### Agent Content Strategies
 
-| Agent      | Discovery                                                                                  | Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| ---------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **arxiv**  | `export.arxiv.org/api/query` (Atom XML, stdlib)                                            | `.tar.gz` → LaTeX → PDF in tarball → rendered PDF → abstract. **Note:** the `all:` prefix colon must not be percent-encoded — build the query string manually instead of passing `params=` to httpx. Sets `_rate_limit_interval = 3.0` (class variable) so the base class enforces 3 s between discovery calls. Additionally sleeps 3 s **inside `_search()`** between per-paper content fetches. `_chunk()` passes LATEX chunks through unchanged; applies the base sliding-window only to PDF/abstract chunks. source_types: `LATEX`, `PDF_RENDERED`, `ABSTRACT_ONLY`.          |
-| **s2**     | `api.semanticscholar.org/graph/v1/snippet/search`                                          | One `snippet` object per result item (not a list); paper identified by `corpusId`. Overrides `_get_rate_limit_interval()` returning `1.0 / agent_config.rate_limit_rps` (1 RPS by default). `_chunk()` passes snippets through unchanged.                                                                                                                                                                                                                                                                                                                                                  |
+| Agent      | Discovery                                                                                  | Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ---------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **arxiv**  | `export.arxiv.org/api/query` (Atom XML, stdlib)                                            | `.tar.gz` → LaTeX → PDF in tarball → rendered PDF → abstract. **Note:** the `all:` prefix colon must not be percent-encoded — build the query string manually instead of passing `params=` to httpx. Sets `_rate_limit_interval = 3.0` (class variable) so the base class enforces 3 s between discovery calls. Additionally sleeps 3 s **inside `_search()`** between per-paper content fetches. `_chunk()` passes LATEX chunks through unchanged; applies the base sliding-window only to PDF/abstract chunks. source_types: `LATEX`, `PDF_RENDERED`, `ABSTRACT_ONLY`.                                                       |
+| **s2**     | `api.semanticscholar.org/graph/v1/snippet/search`                                          | One `snippet` object per result item (not a list); paper identified by `corpusId`. Overrides `_get_rate_limit_interval()` returning `1.0 / agent_config.rate_limit_rps` (1 RPS by default). `_chunk()` passes snippets through unchanged.                                                                                                                                                                                                                                                                                                                                                                                      |
 | **pubmed** | NCBI `esearch.fcgi` (PMID list) + `esummary.fcgi` (metadata + PMC ID)                      | `efetch.fcgi?db=pmc` → parses `<sec>` elements (full text); falls back to `efetch.fcgi?db=pubmed` → `<AbstractText>` (abstract). Overrides `_get_rate_limit_interval()` returning `1.0 / agent_config.rate_limit_rps` (3 RPS by default, 10 RPS with NCBI API key). Also sleeps `delay` seconds **inside `_search()`** between each eUtils HTTP call (esearch, esummary, each efetch) for intra-request pacing. `_ncbi_params()` helper omits `api_key` from params when `agent_config.api_key` is blank (NCBI returns 400 otherwise). `_chunk()` passes sections through unchanged. source_types: `PMC_XML`, `ABSTRACT_ONLY`. |
-| **core**   | CORE API v3 `/search/works/` (trailing slash — API redirects; use `follow_redirects=True`) | `fullText` field → `_fetch_pdf_text()` module-level helper downloads PDF → falls back to abstract. No rate-limit override (base default 0.0). `_chunk()` passes through unchanged. source_types: `FULLTEXT`, `PDF_DOWNLOADED`, `ABSTRACT_ONLY`.                                                                                                                                                                                                                                                                                                                                   |
-| **web**    | Brave Search API                                                                           | URL filter by domain tier, then Firecrawl scraping                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| **core**   | CORE API v3 `/search/works/` (trailing slash — API redirects; use `follow_redirects=True`) | `fullText` field → `_fetch_pdf_text()` module-level helper downloads PDF → falls back to abstract. No rate-limit override (base default 0.0). `_chunk()` passes through unchanged. source_types: `FULLTEXT`, `PDF_DOWNLOADED`, `ABSTRACT_ONLY`.                                                                                                                                                                                                                                                                                                                                                                                |
+| **web**    | Brave Search API                                                                           | URL filter by domain tier, then Firecrawl scraping                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 The web agent's URL filter has two stages: (1) domain tier regex (`BLOCK`/`DEFAULT`/`GOOD`/`PRIORITY`), (2) optional LLM ranking of survivors (disable with `web_llm_url_ranking: False`).
 
@@ -138,12 +138,13 @@ Standalone sub-package with no intra-package imports.
 
 **`mara/agent/state.py`**
 
-- **`GraphState`** — `TypedDict(total=False)`: `original_query`, `sub_queries`, `findings` (reduced with `operator.add`), `forest_tree`, `flattened_chunks`, `report`, `certified_report`. All keys optional so nodes return partial updates.
+- **`GraphState`** — `TypedDict(total=False)`: `original_query`, `sub_queries`, `findings` (reduced with `operator.add`), `forest_tree`, `flattened_chunks`, `selected_chunks`, `report`, `certified_report`. All keys optional so nodes return partial updates.
+- `selected_chunks`: `list[VerifiedChunk]` — deduplicated, BM25-ranked subset of `flattened_chunks`, capped at `chunk_selector_cap`. Written by `chunk_selector_node`; preferred by `report_synthesizer` over `flattened_chunks`.
 - **`AgentRunState`** — `TypedDict`: `sub_query`, `agent_type`. Payload for each `Send()` fan-out invocation.
 
 **`mara/agent/graph.py`**
 
-- **`build_graph()`** — compiles the `StateGraph`. Topology: `START → query_planner → [route_to_agents] → run_agent (×N) → corpus_assembler → report_synthesizer → certified_output → END`.
+- **`build_graph()`** — compiles the `StateGraph`. Topology: `START → query_planner → route_to_agents → run_agent (×N×M) → corpus_assembler → chunk_selector → report_synthesizer → certified_output → END`.
 - **`run_research(query, config)`** — async entry point. Calls `build_graph()`, invokes with `{"original_query": query}`, passes `config` via `{"configurable": {"research_config": config}}`. Returns `CertifiedReport`. **Agent modules must be imported before this is called** (the CLI does this in `run()`).
 
 **`mara/agent/edges/routing.py`**
@@ -152,10 +153,11 @@ Standalone sub-package with no intra-package imports.
 
 **`mara/agent/nodes/`**
 
-- **`query_planner_node`** — builds a dynamic system prompt via `get_registry_summary()`, calls LLM, parses JSON array of `{query, domain, agent}` objects into `SubQuery` list. Falls back to single `SubQuery(original_query)` on parse failure.
+- **`query_planner_node`** — builds a dynamic system prompt via `get_registry_summary()` (includes routing constraints: respect `Max sub-queries` limits, require distinct aspects, prefer concrete searchable phrases), calls LLM, parses JSON array of `{query, domain, agent}` objects into `SubQuery` list. Falls back to single `SubQuery(original_query)` on parse failure.
 - **`run_agent_node`** — looks up `AgentRegistration` from `_REGISTRY` by `agent_type`, instantiates `reg.cls` with `research_config`, calls `agent.run(sub_query)`. Returns `{"findings": [AgentFindings]}`. On exception, logs a warning and returns `{"findings": []}` so one agent failure does not crash the pipeline.
 - **`corpus_assembler_node`** — groups chunks by `agent_type`, sorts by `(sub_query, chunk_index)`, skips agents with 0 chunks (empty root is not a valid forest leaf), builds one `MerkleTree` root per agent, calls `build_forest_tree`, assigns globally unique `chunk_index` values via `dataclasses.replace`.
-- **`report_synthesizer_node`** — formats chunks as `[index:short_hash] text`, calls LLM to synthesise a report with inline `[ML:index:hash]` citations.
+- **`chunk_selector_node`** — deduplicates `flattened_chunks` by hash, BM25Plus-ranks against `original_query` (via `mara/agent/scoring.py`), caps at `research_config.chunk_selector_cap` (default 50), writes `selected_chunks`.
+- **`report_synthesizer_node`** — reads `selected_chunks` (preferred) or `flattened_chunks` (fallback), formats chunks as `[index:short_hash] text`, calls LLM to synthesise a structured report (title, executive summary, thematic sections, conclusion; 800–1500 words) with inline `[ML:index:hash]` citations. Prompt instructs model to flag thin evidence and acknowledge conflicting sources explicitly.
 - **`certified_output_node`** — parses citation indices from the report (handling `[ML:N:hash]`, `[N:hash]`, `[N]`, and `[N, M, ...]` formats — the LLM may omit the `ML:` prefix), appends a `## References` section mapping each cited index to its source URL, then packages `original_query`, `report`, `forest_tree`, and `flattened_chunks` into a `CertifiedReport`. The references section is omitted when no valid citations are found.
 
 ### Config (`mara/config.py`)
@@ -168,6 +170,8 @@ All tunable parameters live in `ResearchConfig` (pydantic-settings, no env prefi
 
 `search_cache` follows the same pattern: typed `Any` at runtime, `SearchCache` under `TYPE_CHECKING`, default `NoOpCache()` set by the same `model_validator`.
 
+`chunk_selector_cap: int = 50` — maximum number of chunks passed from `chunk_selector` to `report_synthesizer`. Controls context window usage.
+
 ### Logging (`mara/logging.py`)
 
 `configure_logging(log_level)` sets up a single `mara` root logger with a JSON formatter on stderr. All submodule loggers (e.g. `mara.agents.base`, `mara.agents.registry`) are children and inherit this handler. Call once at startup.
@@ -177,7 +181,7 @@ All tunable parameters live in `ResearchConfig` (pydantic-settings, no env prefi
 1. `merkle/` (hasher → tree → proof → forest)
 2. `agents/types.py`, `agents/filtering.py`, `agents/base.py`, `agents/registry.py`
 3. Agent modules: `agents/arxiv/`, `agents/semantic_scholar/`, `agents/pubmed/`, `agents/core/`, `agents/web/`
-4. `agent/nodes/corpus_assembler.py`
+4. `agent/nodes/corpus_assembler.py`, `agent/scoring.py`, `agent/nodes/chunk_selector.py`
 5. `agent/graph.py`
 
 ## Testing

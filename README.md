@@ -5,15 +5,16 @@ MARA runs a parallel research pipeline across academic and web sources, synthesi
 ## How it works
 
 ```
-query_planner → [route_to_agents] → run_agent (×N) → corpus_assembler → report_synthesizer → certified_output
+query_planner → [route_to_agents] → run_agent (×N) → corpus_assembler → chunk_selector → report_synthesizer → certified_output
 ```
 
 1. **Query planner** — an LLM decomposes the user's question into targeted sub-queries and assigns each to the most appropriate agent.
 2. **Fan-out** — LangGraph's `Send()` API dispatches sub-queries in parallel.
 3. **Specialist agents** — each agent fetches source text, hashes every chunk immediately, and assembles the hashes into a Merkle sub-tree.
 4. **Corpus assembler** — merges all sub-tree roots into a single `ForestTree`, assigns globally unique chunk indices, and builds the two-level proof structure.
-5. **Report synthesiser** — an LLM reads the indexed corpus and writes a report with inline citations (`[ML:index:hash]`).
-6. **Certified output** — resolves citations to source URLs, appends a `## References` section, and packages everything into an immutable `CertifiedReport`.
+5. **Chunk selector** — deduplicates chunks by hash, BM25Plus-ranks against the original query, and caps the corpus at `CHUNK_SELECTOR_CAP` (default 50) to prevent context overflow.
+6. **Report synthesiser** — an LLM reads the selected corpus and writes a structured report with inline citations (`[ML:index:hash]`).
+7. **Certified output** — resolves citations to source URLs, appends a `## References` section, and packages everything into an immutable `CertifiedReport`.
 
 ## Agents
 
@@ -59,6 +60,7 @@ Optional variables and their defaults:
 | `RETRY_BACKOFF_BASE`           | `2.0`                              | Exponential back-off base (seconds)               |
 | `CHUNK_SIZE`                   | `1000`                             | Character window size for chunking                |
 | `CHUNK_OVERLAP`                | `200`                              | Character overlap between adjacent chunks         |
+| `CHUNK_SELECTOR_CAP`           | `50`                               | Max chunks passed to the report synthesizer       |
 
 ## Usage
 

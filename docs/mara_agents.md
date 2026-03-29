@@ -506,6 +506,9 @@ class AgentConfig:
     api_key: str = ""              # API key for this agent's service
     max_results: int = 20          # Max search results per query
     rate_limit_rps: float = 0.0    # Rate limit in requests/second (0 = no limit)
+    max_concurrent: int = 0        # 0 = unlimited concurrent _search() calls
+    retry_backoff_base: float = 0.0  # 0 = use ResearchConfig.retry_backoff_base
+    max_sub_queries: int = 0       # 0 = unlimited; >0 caps planner routing to this agent
 ```
 
 **Usage:**
@@ -620,6 +623,7 @@ def get_registry_summary() -> str:
           Capabilities: ...
           Limitations: ...
           Example queries: ...
+          Max sub-queries: N  (only shown when > 0)
 
     Returns placeholder string when no agents are registered.
     """
@@ -632,6 +636,7 @@ def get_registry_summary() -> str:
   Capabilities: Full LaTeX source for most CS/physics/math papers; PDF fallback when LaTeX is unavailable
   Limitations: No clinical or biomedical content (use pubmed); Preprints may not be peer-reviewed
   Example queries: "quantum error correction with surface codes"; "transformer attention mechanism efficiency improvements"
+  Max sub-queries: 1
 
 [s2] Retrieves citation-rich paper snippets from Semantic Scholar spanning all academic disciplines.
   ...
@@ -904,6 +909,21 @@ All specialist agents extend `SpecialistAgent` and are registered via the `@agen
 - `agent.py` — Main agent; Atom feed parsing; fallback logic
 - `fetcher.py` — HTTP fetching; tarball extraction; PDF text extraction
 - `latex_parser.py` — LaTeX source parsing; section extraction; text cleaning
+
+**Registration:**
+
+```python
+@agent(
+    "arxiv",
+    description="Retrieves preprints and papers from ArXiv covering physics, math, CS, and quantitative biology.",
+    capabilities=[...],
+    limitations=[...],
+    example_queries=[...],
+    config=AgentConfig(max_concurrent=1, retry_backoff_base=3.0, max_sub_queries=1),
+)
+class ArxivAgent(SpecialistAgent):
+    ...
+```
 
 **Source Types:**
 
