@@ -103,6 +103,13 @@ def test_build_references_ml_format() -> None:
     assert "[2] https://arxiv.org/abs/1234" in result
 
 
+def test_build_references_index_hash_format() -> None:
+    """[N:hash] variant (LLM omits the ML: prefix) must still resolve."""
+    chunk = make_chunk(url="https://arxiv.org/abs/5678", chunk_index=7)
+    result = _build_references_section("Cited [7:abcd1234].", (chunk,))
+    assert "[7] https://arxiv.org/abs/5678" in result
+
+
 def test_build_references_out_of_range_index_skipped() -> None:
     chunk = make_chunk(chunk_index=0)
     result = _build_references_section("See [99] which is out of range.", (chunk,))

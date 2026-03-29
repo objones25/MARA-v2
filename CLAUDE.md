@@ -44,7 +44,7 @@ Fan-out uses LangGraph's `Send()` API. Fan-in uses `operator.add` on the state's
 - **`RawChunk`** — mutable dataclass: `url`, `text`, `retrieved_at`, `source_type`, `sub_query`. Empty/whitespace `url` or `text` raises `ValueError`.
 - **`VerifiedChunk`** — frozen dataclass: all `RawChunk` fields plus `hash` and `chunk_index` (agent-local; corpus assembler assigns global indices). `short_hash` returns first 8 hex chars. Produced exclusively by `SpecialistAgent.run()`.
 - **`AgentFindings`** — frozen dataclass: `agent_type`, `query`, `chunks: tuple[VerifiedChunk, ...]`, `merkle_root`, `merkle_tree`. `__post_init__` recomputes the Merkle root and raises `ValueError("merkle_root mismatch")` if it doesn't match. `chunk_count` property returns `len(chunks)`.
-- **`CertifiedReport`** — frozen dataclass: `original_query`, `report`, `forest_tree`, `chunks: tuple[VerifiedChunk, ...]`. The pipeline's final output. The `report` string includes inline citations (the LLM may produce `[ML:index:hash]`, `[N]`, or `[N, M, ...]` format) followed by a `## References` section appended by `certified_output_node`.
+- **`CertifiedReport`** — frozen dataclass: `original_query`, `report`, `forest_tree`, `chunks: tuple[VerifiedChunk, ...]`. The pipeline's final output. The `report` string includes inline citations (the LLM may produce `[ML:index:hash]`, `[N:hash]`, `[N]`, or `[N, M, ...]` format) followed by a `## References` section appended by `certified_output_node`.
 
 ### `mara/agents/registry.py` — Self-registration
 
@@ -57,14 +57,48 @@ Fan-out uses LangGraph's `Send()` API. Fan-in uses `operator.add` on the state's
 
 Adding a new agent requires only writing the class and applying `@agent("name", ...)` — nothing else in the pipeline changes.
 
+### `mara/agents/cache.py` — Search result cache
+
+- **`SearchCache`** — `@runtime_checkable` Protocol: `get(agent_type, query) -> list[RawChunk] | None` and `set(agent_type, query, result) -> None`. Both are `async`.
+- **`NoOpCache`** — default. `get` always returns `None`; `set` is a no-op. Zero overhead when caching is not needed.
+- **`InMemoryCache`** — simple dict-backed cache keyed by `(agent_type, query)`. Opt-in via `ResearchConfig(search_cache=InMemoryCache())`. Useful for repeated queries in the same process (e.g. interactive shells, tests).
+
+`search_cache` is typed `Any` at runtime in `ResearchConfig` (same circular-import reason as `chunk_filter`); `TYPE_CHECKING` guard provides the `SearchCache` annotation.
+
 ### `mara/agents/base.py` — SpecialistAgent
 
 Abstract base class all agents extend. Subclasses implement only `_search()`.
 
 Pipeline: `_search() → _chunk() → _filter()` wired together in `_retrieve()`; `run()` calls `_retrieve()` and handles hashing.
 
-- **`_search(sub_query)`** — abstract. Fetch raw chunks. Must NOT hash.
-- **`_chunk(raw)`** — concrete, overridable. Fixed-size character sliding window (`chunk_size`, step = `chunk_size − chunk_overlap`). Returns raw unchanged for degenerate config (`size ≤ 0` or `step ≤ 0`). Agents with pre-chunked content (ArXiv, S2, PubMed) override this.
+**Rate limiting** — class-level infrastructure shared across all instances of the same agent type:
+
+- `_rate_limit_interval: float = 0.0` — class variable. Set to a positive value for a fixed inter-call delay. Override `_get_rate_limit_interval()` instead for config-dependent values (e.g. `1.0 / config.s2_max_rps`).
+- `_locks: dict[str, asyncio.Lock]` / `_last_called: dict[str, float]` — class-level dicts keyed by agent type string so distinct agent types don't interfere.
+- `_get_lock(agent_type)` — classmethod; creates the lock on first access.
+- `_reset_rate_limit_state()` — classmethod; clears both dicts. Call in test teardown fixtures.
+- `_acquire_rate_limit_slot()` — blocks until it is safe to call `_search()` again. No-ops when interval ≤ 0. Logs `"rate limit: sleeping %.3fs"` at DEBUG only when a wait actually occurs.
+
+**Retry** — `_fetch_with_retry(sub_query)`:
+
+1. Check `config.search_cache.get(agent_type, query)` — cache hit skips rate limiting and the network call entirely.
+2. Acquire rate-limit slot.
+3. Loop `config.max_retries + 1` times:
+   - Logs `"attempt %d/%d"` at DEBUG on each attempt.
+   - On success: populate cache, return result.
+   - `401`/`403` → logs WARNING `"auth error %d — aborting"`, re-raises immediately.
+   - `404` → logs DEBUG `"404 — returning empty"`, returns `[]`.
+   - `429`/`5xx` → logs WARNING `"HTTP %d on attempt %d — will retry"`.
+   - `ConnectError` / `TimeoutException` → logs WARNING with exception text.
+   - Between retries: sleeps `retry_backoff_base ** attempt` seconds, logs DEBUG `"backing off %.1fs before attempt %d"`.
+4. After all attempts exhausted: logs ERROR `"all %d attempt(s) failed"`, re-raises last exception.
+
+All log calls include `extra={"agent": agent_type}` for structured JSON logging.
+
+**Other methods:**
+
+- **`_search(sub_query)`** — abstract. Fetch raw chunks. Must NOT hash, retry, or sleep.
+- **`_chunk(raw)`** — concrete, overridable. Fixed-size character sliding window (`chunk_size`, step = `chunk_size − chunk_overlap`). Returns raw unchanged for degenerate config (`size ≤ 0` or `step ≤ 0`). Agents with pre-chunked content (ArXiv, S2, PubMed, CORE) override this to return `raw` unchanged.
 - **`_filter(chunks, query)`** — concrete. Delegates entirely to `self.config.chunk_filter.filter(chunks, query)`.
 - **`_retrieve(sub_query)`** — concrete pipeline. Logs per-stage counts at DEBUG.
 - **`model()`** — returns `config.model_overrides.get(agent_type, config.default_model)`.
@@ -74,13 +108,13 @@ Each agent module defines its own `source_type` string constants (e.g., `LATEX`,
 
 #### Agent Content Strategies
 
-| Agent      | Discovery                                                                                  | Content                                                                                                                                                                                                                                                                                                                                                                     |
-| ---------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **arxiv**  | `export.arxiv.org/api/query` (Atom XML, stdlib)                                            | `.tar.gz` → LaTeX → PDF in tarball → rendered PDF → abstract. **Note:** the `all:` prefix colon must not be percent-encoded — build the query string manually instead of passing `params=` to httpx. Discovery calls are serialized via a shared `asyncio.Lock` singleton (`_ARXIV_LOCK`) with a 3 s sleep inside the lock to avoid 429s from concurrent sub-query fan-out. |
-| **s2**     | `api.semanticscholar.org/graph/v1/snippet/search`                                          | One `snippet` object per result item (not a list); paper identified by `corpusId`. Rate-limited to ≤1 RPS via shared `asyncio.Lock` singleton. `_chunk()` passes snippets through unchanged.                                                                                                                                                                                |
-| **pubmed** | NCBI `esearch.fcgi` (PMID list) + `esummary.fcgi` (metadata + PMC ID)                      | `efetch.fcgi?db=pmc` → parses `<sec>` elements (full text); falls back to `efetch.fcgi?db=pubmed` → `<AbstractText>` (abstract). Rate-limited via shared `asyncio.Lock` singleton. `api_key` omitted from params when `ncbi_api_key` is blank (NCBI returns 400 otherwise). `_chunk()` passes sections through unchanged.                                                   |
-| **core**   | CORE API v3 `/search/works/` (trailing slash — API redirects; use `follow_redirects=True`) | `fullText` field → download PDF → abstract                                                                                                                                                                                                                                                                                                                                  |
-| **web**    | Brave Search API                                                                           | URL filter by domain tier, then Firecrawl scraping                                                                                                                                                                                                                                                                                                                          |
+| Agent      | Discovery                                                                                  | Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **arxiv**  | `export.arxiv.org/api/query` (Atom XML, stdlib)                                            | `.tar.gz` → LaTeX → PDF in tarball → rendered PDF → abstract. **Note:** the `all:` prefix colon must not be percent-encoded — build the query string manually instead of passing `params=` to httpx. Sets `_rate_limit_interval = 3.0` (class variable) so the base class enforces 3 s between discovery calls. Additionally sleeps 3 s **inside `_search()`** between per-paper content fetches. `_chunk()` passes LATEX chunks through unchanged; applies the base sliding-window only to PDF/abstract chunks. source_types: `LATEX`, `PDF_RENDERED`, `ABSTRACT_ONLY`.          |
+| **s2**     | `api.semanticscholar.org/graph/v1/snippet/search`                                          | One `snippet` object per result item (not a list); paper identified by `corpusId`. Overrides `_get_rate_limit_interval()` returning `1.0 / config.s2_max_rps` (≤1 RPS by default). `_chunk()` passes snippets through unchanged.                                                                                                                                                                                                                                                                                                                                                  |
+| **pubmed** | NCBI `esearch.fcgi` (PMID list) + `esummary.fcgi` (metadata + PMC ID)                      | `efetch.fcgi?db=pmc` → parses `<sec>` elements (full text); falls back to `efetch.fcgi?db=pubmed` → `<AbstractText>` (abstract). Overrides `_get_rate_limit_interval()` returning `1.0 / config.pubmed_rate_limit_per_second`. Also sleeps `delay` seconds **inside `_search()`** between each eUtils HTTP call (esearch, esummary, each efetch) for intra-request pacing. `_ncbi_params()` helper omits `api_key` from params when `ncbi_api_key` is blank (NCBI returns 400 otherwise). `_chunk()` passes sections through unchanged. source_types: `PMC_XML`, `ABSTRACT_ONLY`. |
+| **core**   | CORE API v3 `/search/works/` (trailing slash — API redirects; use `follow_redirects=True`) | `fullText` field → `_fetch_pdf_text()` module-level helper downloads PDF → falls back to abstract. No rate-limit override (base default 0.0). `_chunk()` passes through unchanged. source_types: `FULLTEXT`, `PDF_DOWNLOADED`, `ABSTRACT_ONLY`.                                                                                                                                                                                                                                                                                                                                   |
+| **web**    | Brave Search API                                                                           | URL filter by domain tier, then Firecrawl scraping                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 The web agent's URL filter has two stages: (1) domain tier regex (`BLOCK`/`DEFAULT`/`GOOD`/`PRIORITY`), (2) optional LLM ranking of survivors (disable with `web_llm_url_ranking: False`).
 
@@ -121,13 +155,15 @@ Standalone sub-package with no intra-package imports.
 - **`run_agent_node`** — looks up `AgentRegistration` from `_REGISTRY` by `agent_type`, instantiates `reg.cls` with `research_config`, calls `agent.run(sub_query)`. Returns `{"findings": [AgentFindings]}`. On exception, logs a warning and returns `{"findings": []}` so one agent failure does not crash the pipeline.
 - **`corpus_assembler_node`** — groups chunks by `agent_type`, sorts by `(sub_query, chunk_index)`, skips agents with 0 chunks (empty root is not a valid forest leaf), builds one `MerkleTree` root per agent, calls `build_forest_tree`, assigns globally unique `chunk_index` values via `dataclasses.replace`.
 - **`report_synthesizer_node`** — formats chunks as `[index:short_hash] text`, calls LLM to synthesise a report with inline `[ML:index:hash]` citations.
-- **`certified_output_node`** — parses citation indices from the report (handling `[ML:N:hash]`, `[N]`, and `[N, M, ...]` formats), appends a `## References` section mapping each cited index to its source URL, then packages `original_query`, `report`, `forest_tree`, and `flattened_chunks` into a `CertifiedReport`. The references section is omitted when no valid citations are found.
+- **`certified_output_node`** — parses citation indices from the report (handling `[ML:N:hash]`, `[N:hash]`, `[N]`, and `[N, M, ...]` formats — the LLM may omit the `ML:` prefix), appends a `## References` section mapping each cited index to its source URL, then packages `original_query`, `report`, `forest_tree`, and `flattened_chunks` into a `CertifiedReport`. The references section is omitted when no valid citations are found.
 
 ### Config (`mara/config.py`)
 
 All tunable parameters live in `ResearchConfig` (pydantic-settings, no env prefix — env vars use plain names: `BRAVE_API_KEY`, `HF_TOKEN`, etc.). Never redeclare config values as loose function arguments or defaults.
 
 `chunk_filter` is typed `Any` at runtime to avoid a circular import (`config → agents.filtering → agents.__init__ → agents.base → config`); a `TYPE_CHECKING` guard provides the `ChunkFilter` annotation for static analysis. The default `CapFilter()` is set lazily via `model_validator(mode="after")`.
+
+`search_cache` follows the same pattern: typed `Any` at runtime, `SearchCache` under `TYPE_CHECKING`, default `NoOpCache()` set by the same `model_validator`.
 
 ### Logging (`mara/logging.py`)
 

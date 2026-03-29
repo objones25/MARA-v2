@@ -16,9 +16,10 @@ _log = logging.getLogger(__name__)
 def _build_references_section(report: str, chunks: tuple[VerifiedChunk, ...]) -> str:
     """Build a References section from citation indices found in *report*.
 
-    Handles three citation formats the LLM may produce:
+    Handles four citation formats the LLM may produce:
 
     - ``[ML:N:hash]``  — MARA native format
+    - ``[N:hash]``     — index+hash without prefix (LLM variant)
     - ``[N]``          — single index shorthand
     - ``[N, M, ...]``  — comma-separated multi-index
 
@@ -30,7 +31,8 @@ def _build_references_section(report: str, chunks: tuple[VerifiedChunk, ...]) ->
     chunk_by_index: dict[int, VerifiedChunk] = {c.chunk_index: c for c in chunks}
     cited: set[int] = set()
 
-    for m in re.finditer(r"\[ML:(\d+):[0-9a-f]+\]", report):
+    # [ML:N:hash] and [N:hash] — both capture the numeric index before the hash
+    for m in re.finditer(r"\[(?:ML:)?(\d+):[0-9a-f]+\]", report):
         cited.add(int(m.group(1)))
 
     for m in re.finditer(r"\[(\d+(?:,\s*\d+)*)\]", report):
