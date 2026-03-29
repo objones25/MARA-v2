@@ -6,6 +6,7 @@ from mara.agents.types import AgentFindings, RawChunk, SubQuery, VerifiedChunk
 import mara.agents.arxiv  # noqa: E402, F401
 import mara.agents.semantic_scholar.agent  # noqa: E402, F401
 import mara.agents.pubmed.agent  # noqa: E402, F401
+import mara.agents.core.agent  # noqa: E402, F401
 import mara.agents.web.agent  # noqa: E402, F401
 
 __all__ = [
