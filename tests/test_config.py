@@ -112,7 +112,9 @@ class TestHashAlgorithm:
 
 class TestWebAgent:
     def test_web_max_results_default(self):
-        assert _valid().web_max_results == 20
+        from mara.agents.registry import AgentConfig
+
+        assert AgentConfig().max_results == 20
 
     def test_web_llm_url_ranking_default_true(self):
         assert _valid().web_llm_url_ranking is True
@@ -131,22 +133,36 @@ class TestWebAgent:
 
 class TestAgentParams:
     def test_s2_max_results_default(self):
-        assert _valid().s2_max_results == 20
+        from mara.agents.registry import AgentConfig
+
+        assert AgentConfig().max_results == 20
 
     def test_s2_max_rps_default(self):
-        assert _valid().s2_max_rps == pytest.approx(1.0)
+        import mara.agents.semantic_scholar.agent  # ensure agent is registered
+        from mara.agents.registry import _REGISTRY
+
+        assert _REGISTRY["s2"].config.rate_limit_rps == pytest.approx(1.0)
 
     def test_pubmed_max_results_default(self):
-        assert _valid().pubmed_max_results == 20
+        from mara.agents.registry import AgentConfig
+
+        assert AgentConfig().max_results == 20
 
     def test_pubmed_rate_limit_default(self):
-        assert _valid().pubmed_rate_limit_per_second == pytest.approx(3.0)
+        import mara.agents.pubmed.agent  # ensure agent is registered
+        from mara.agents.registry import _REGISTRY
+
+        assert _REGISTRY["pubmed"].config.rate_limit_rps == pytest.approx(3.0)
 
     def test_core_max_results_default(self):
-        assert _valid().core_max_results == 20
+        from mara.agents.registry import AgentConfig
+
+        assert AgentConfig().max_results == 20
 
     def test_arxiv_max_results_default(self):
-        assert _valid().arxiv_max_results == 20
+        from mara.agents.registry import AgentConfig
+
+        assert AgentConfig().max_results == 20
 
 
 # ---------------------------------------------------------------------------

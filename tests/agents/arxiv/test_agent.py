@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mara.agents.arxiv.agent import ArxivAgent, _parse_feed, _versioned_id_from_url
+from mara.agents.registry import AgentConfig
 from mara.agents.arxiv.fetcher import ABSTRACT_ONLY, LATEX, PDF_FROM_TARBALL, PDF_RENDERED
 from mara.agents.types import RawChunk, SubQuery
 
@@ -148,13 +149,13 @@ class TestArxivAgentChunk:
         )
 
     def test_latex_chunks_pass_through(self, config):
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         chunk = self._make_chunk(LATEX)
         result = agent._chunk([chunk])
         assert result == [chunk]
 
     def test_non_latex_chunks_use_sliding_window(self, config):
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         chunk = self._make_chunk(ABSTRACT_ONLY)
         result = agent._chunk([chunk])
         # 2000 chars with chunk_size=1000 and overlap=200 → multiple chunks
@@ -162,7 +163,7 @@ class TestArxivAgentChunk:
         assert all(c.source_type == ABSTRACT_ONLY for c in result)
 
     def test_mixed_chunks_split_correctly(self, config):
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         latex_chunk = self._make_chunk(LATEX)
         pdf_chunk = self._make_chunk(PDF_RENDERED)
         result = agent._chunk([latex_chunk, pdf_chunk])
@@ -172,17 +173,17 @@ class TestArxivAgentChunk:
         assert len(pdf_results) > 1     # slid
 
     def test_empty_input(self, config):
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         assert agent._chunk([]) == []
 
     def test_all_non_latex(self, config):
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         chunk = self._make_chunk(PDF_FROM_TARBALL)
         result = agent._chunk([chunk])
         assert all(c.source_type == PDF_FROM_TARBALL for c in result)
 
     def test_only_latex_no_super_call(self, config):
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         latex_chunk = RawChunk(
             url="https://arxiv.org/abs/1234v1",
             text="Short latex section.",
@@ -227,7 +228,7 @@ class TestArxivAgentSearch:
 
         mocker.patch("mara.agents.arxiv.agent.httpx.AsyncClient", return_value=mock_client)
 
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         sub_query = SubQuery(query="quantum computing")
         chunks = await agent._search(sub_query)
 
@@ -259,7 +260,7 @@ class TestArxivAgentSearch:
         mock_reader.pages = [mock_page]
 
         with patch("pypdf.PdfReader", return_value=mock_reader):
-            agent = ArxivAgent(config)
+            agent = ArxivAgent(config, AgentConfig())
             chunks = await agent._search(SubQuery(query="test"))
 
         assert len(chunks) == 1
@@ -288,7 +289,7 @@ class TestArxivAgentSearch:
         mock_reader.pages = [mock_page]
 
         with patch("pypdf.PdfReader", return_value=mock_reader):
-            agent = ArxivAgent(config)
+            agent = ArxivAgent(config, AgentConfig())
             chunks = await agent._search(SubQuery(query="test"))
 
         assert len(chunks) == 1
@@ -312,7 +313,7 @@ class TestArxivAgentSearch:
         mocker.patch("mara.agents.arxiv.agent.httpx.AsyncClient", return_value=mock_client)
 
         with patch("pypdf.PdfReader", side_effect=Exception("bad pdf")):
-            agent = ArxivAgent(config)
+            agent = ArxivAgent(config, AgentConfig())
             chunks = await agent._search(SubQuery(query="test"))
 
         assert len(chunks) == 1
@@ -347,7 +348,7 @@ class TestArxivAgentSearch:
         mocker.patch("mara.agents.arxiv.agent.httpx.AsyncClient", return_value=mock_client)
 
         with patch("pypdf.PdfReader", side_effect=Exception("bad")):
-            agent = ArxivAgent(config)
+            agent = ArxivAgent(config, AgentConfig())
             chunks = await agent._search(SubQuery(query="test"))
 
         assert chunks == []
@@ -372,7 +373,7 @@ class TestArxivAgentSearch:
 
         mocker.patch("mara.agents.arxiv.agent.httpx.AsyncClient", return_value=mock_client)
 
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         with pytest.raises(httpx.HTTPStatusError):
             await agent._search(SubQuery(query="test"))
 
@@ -399,7 +400,7 @@ class TestArxivAgentSearch:
 
         mocker.patch("mara.agents.arxiv.agent.httpx.AsyncClient", return_value=mock_client)
 
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         await agent._search(SubQuery(query="test"))
 
         # 1 sleep between the two papers (base class handles discovery-level rate limiting)
@@ -426,7 +427,7 @@ class TestArxivAgentSearch:
 
         mocker.patch("mara.agents.arxiv.agent.httpx.AsyncClient", return_value=mock_client)
 
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         chunks = await agent._search(SubQuery(query="test"))
 
         assert len(chunks) == 1
@@ -457,7 +458,7 @@ class TestArxivAgentSearch:
         mock_reader.pages = [mock_page]
 
         with patch("pypdf.PdfReader", return_value=mock_reader):
-            agent = ArxivAgent(config)
+            agent = ArxivAgent(config, AgentConfig())
             chunks = await agent._search(SubQuery(query="test"))
 
         # Should fall through to PDF_FROM_TARBALL since latex produced no chunks
@@ -483,7 +484,7 @@ class TestArxivAgentSearch:
 
         mocker.patch("mara.agents.arxiv.agent.httpx.AsyncClient", return_value=mock_client)
 
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         chunks = await agent._search(SubQuery(query="test"))
 
         assert chunks == []
@@ -512,7 +513,7 @@ class TestArxivAgentSearch:
         mock_reader.pages = [mock_page]
 
         with patch("pypdf.PdfReader", return_value=mock_reader):
-            agent = ArxivAgent(config)
+            agent = ArxivAgent(config, AgentConfig())
             chunks = await agent._search(SubQuery(query="test"))
 
         assert len(chunks) == 1
@@ -548,7 +549,7 @@ class TestArxivAgentSearch:
         real_reader.pages = [real_page]
 
         with patch("pypdf.PdfReader", side_effect=[empty_reader, real_reader]):
-            agent = ArxivAgent(config)
+            agent = ArxivAgent(config, AgentConfig())
             chunks = await agent._search(SubQuery(query="test"))
 
         assert len(chunks) == 1
@@ -571,7 +572,7 @@ class TestArxivAgentSearch:
 
         mocker.patch("mara.agents.arxiv.agent.httpx.AsyncClient", return_value=mock_client)
 
-        agent = ArxivAgent(config)
+        agent = ArxivAgent(config, AgentConfig())
         chunks = await agent._search(SubQuery(query="test"))
 
         assert len(chunks) == 1

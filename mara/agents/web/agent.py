@@ -101,7 +101,7 @@ class WebAgent(SpecialistAgent):
         }
         params: dict[str, str | int] = {
             "q": sub_query.query,
-            "count": self.config.web_max_results,
+            "count": self.agent_config.max_results,
             "extra_snippets": "true",
         }
         if self.config.brave_freshness:

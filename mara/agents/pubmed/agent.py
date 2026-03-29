@@ -23,7 +23,7 @@ import httpx
 from mara.agents.base import SpecialistAgent
 from mara.agents.pubmed.fulltext import parse_abstract_xml, parse_pmc_sections
 from mara.agents.pubmed.search import parse_article_metadata
-from mara.agents.registry import agent
+from mara.agents.registry import AgentConfig, agent
 from mara.agents.types import RawChunk, SubQuery
 
 _log = logging.getLogger(__name__)
@@ -62,13 +62,10 @@ def _now_iso() -> str:
         "neural correlates of working memory in fMRI studies",
         "antibiotic resistance mechanisms in gram-negative bacteria",
     ],
+    config=AgentConfig(rate_limit_rps=3.0),
 )
 class PubMedAgent(SpecialistAgent):
     """Retrieves research papers from PubMed / PMC via NCBI eUtils."""
-
-    def _get_rate_limit_interval(self) -> float:
-        """Return the minimum seconds between ``_search()`` calls (= 1 / pubmed_rate_limit_per_second)."""
-        return 1.0 / self.config.pubmed_rate_limit_per_second
 
     def _chunk(self, raw: list[RawChunk]) -> list[RawChunk]:
         """PMC sections and abstracts are pre-chunked; pass through unchanged."""
@@ -77,8 +74,8 @@ class PubMedAgent(SpecialistAgent):
     def _ncbi_params(self, **kwargs: object) -> dict:
         """Build an NCBI params dict, including ``api_key`` only when configured."""
         params: dict = dict(kwargs)
-        if self.config.ncbi_api_key:
-            params["api_key"] = self.config.ncbi_api_key
+        if self.agent_config.api_key:
+            params["api_key"] = self.agent_config.api_key
         return params
 
     async def _search(self, sub_query: SubQuery) -> list[RawChunk]:
@@ -93,7 +90,7 @@ class PubMedAgent(SpecialistAgent):
             httpx.HTTPStatusError: if esearch returns a non-2xx response.
         """
         retrieved_at = _now_iso()
-        delay = 1.0 / self.config.pubmed_rate_limit_per_second
+        delay = self._get_rate_limit_interval()
 
         async with httpx.AsyncClient() as client:
             # 1. esearch — discover PMIDs
@@ -102,7 +99,7 @@ class PubMedAgent(SpecialistAgent):
                 params=self._ncbi_params(
                     db="pubmed",
                     term=sub_query.query,
-                    retmax=self.config.pubmed_max_results,
+                    retmax=self.agent_config.max_results,
                     retmode="json",
                 ),
             )

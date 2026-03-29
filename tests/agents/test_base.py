@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from mara.agents.base import SpecialistAgent
-from mara.agents.registry import agent
+from mara.agents.registry import AgentConfig, agent
 from mara.agents.types import AgentFindings, RawChunk, SubQuery
 from mara.config import ResearchConfig
 from mara.merkle.hasher import hash_chunk
@@ -66,17 +66,17 @@ def _make_concrete(name: str) -> type[SpecialistAgent]:
 class TestInstantiation:
     def test_stores_config(self, config):
         cls = _make_concrete("init_agent")
-        agent_instance = cls(config)
+        agent_instance = cls(config, AgentConfig())
         assert agent_instance.config is config
 
     def test_repr_contains_class_name(self, config):
         cls = _make_concrete("repr_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         assert "ConcreteAgent" in repr(instance) or "repr_agent" in repr(instance)
 
     def test_str_returns_agent_type(self, config):
         cls = _make_concrete("str_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         assert str(instance) == "str_agent"
 
 
@@ -88,14 +88,14 @@ class TestInstantiation:
 class TestAgentType:
     def test_returns_registered_name(self, config):
         cls = _make_concrete("my_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         assert instance._agent_type() == "my_agent"
 
     def test_different_agents_return_different_types(self, config):
         cls_a = _make_concrete("agent_a")
         cls_b = _make_concrete("agent_b")
-        assert cls_a(config)._agent_type() == "agent_a"
-        assert cls_b(config)._agent_type() == "agent_b"
+        assert cls_a(config, AgentConfig())._agent_type() == "agent_a"
+        assert cls_b(config, AgentConfig())._agent_type() == "agent_b"
 
     def test_unregistered_agent_raises(self, config):
         class Unregistered(SpecialistAgent):
@@ -103,7 +103,7 @@ class TestAgentType:
                 return []
 
         with pytest.raises(StopIteration):
-            Unregistered(config)
+            Unregistered(config, AgentConfig())
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ class TestAgentType:
 class TestModel:
     def test_returns_default_model_when_no_override(self, config):
         cls = _make_concrete("model_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         assert instance.model() == config.default_model
 
     def test_returns_override_when_set(self, config):
@@ -137,7 +137,7 @@ class TestModel:
             async def _search(self, sub_query: SubQuery) -> list[RawChunk]:
                 return []
 
-        instance = OverrideAgent(overridden_config)
+        instance = OverrideAgent(overridden_config, AgentConfig())
         assert instance.model() == "smaller-model"
 
     def test_override_for_other_agent_does_not_affect_this_one(self, config):
@@ -155,7 +155,7 @@ class TestModel:
             }
         )
         cls = _make_concrete("unaffected_agent")
-        instance = cls(cfg)
+        instance = cls(cfg, AgentConfig())
         assert instance.model() == cfg.default_model
 
 
@@ -167,7 +167,7 @@ class TestModel:
 class TestRun:
     async def test_run_returns_agent_findings(self, config):
         cls = _make_concrete("run_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         raw = [_raw()]
         instance._retrieve = AsyncMock(return_value=raw)
 
@@ -177,7 +177,7 @@ class TestRun:
 
     async def test_run_sets_correct_agent_type(self, config):
         cls = _make_concrete("type_check_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         instance._retrieve = AsyncMock(return_value=[_raw()])
 
         result = await instance.run(SubQuery(query="q"))
@@ -185,7 +185,7 @@ class TestRun:
 
     async def test_run_sets_query(self, config):
         cls = _make_concrete("query_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         instance._retrieve = AsyncMock(return_value=[_raw()])
 
         result = await instance.run(SubQuery(query="my query"))
@@ -193,7 +193,7 @@ class TestRun:
 
     async def test_run_hashes_chunks_correctly(self, config):
         cls = _make_concrete("hash_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         raw = _raw(url="https://arxiv.org/abs/1", text="content", retrieved_at=_TS)
         instance._retrieve = AsyncMock(return_value=[raw])
 
@@ -204,7 +204,7 @@ class TestRun:
 
     async def test_run_assigns_chunk_index(self, config):
         cls = _make_concrete("index_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         raws = [_raw(url=f"https://example.com/{i}") for i in range(3)]
         instance._retrieve = AsyncMock(return_value=raws)
 
@@ -213,7 +213,7 @@ class TestRun:
 
     async def test_run_empty_retrieve_returns_empty_findings(self, config):
         cls = _make_concrete("empty_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         instance._retrieve = AsyncMock(return_value=[])
 
         result = await instance.run(SubQuery(query="q"))
@@ -222,7 +222,7 @@ class TestRun:
 
     async def test_run_merkle_root_verified(self, config):
         cls = _make_concrete("merkle_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         raws = [_raw(url=f"https://example.com/{i}") for i in range(4)]
         instance._retrieve = AsyncMock(return_value=raws)
 
@@ -236,7 +236,7 @@ class TestRun:
 
     async def test_run_uses_config_hash_algorithm(self, config):
         cls = _make_concrete("algo_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         raw = _raw()
         instance._retrieve = AsyncMock(return_value=[raw])
 
@@ -246,7 +246,7 @@ class TestRun:
 
     async def test_run_passes_sub_query_to_retrieve(self, config):
         cls = _make_concrete("pass_query_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         instance._retrieve = AsyncMock(return_value=[])
 
         sq = SubQuery(query="specific query")
@@ -255,7 +255,7 @@ class TestRun:
 
     async def test_run_wraps_retrieve_exception_with_context(self, config):
         cls = _make_concrete("run_exc_agent")
-        instance = cls(config)
+        instance = cls(config, AgentConfig())
         instance._retrieve = AsyncMock(side_effect=ValueError("network down"))
 
         with pytest.raises(RuntimeError, match="run_exc_agent") as exc_info:
@@ -270,17 +270,17 @@ class TestRun:
 
 class TestChunk:
     def test_empty_list_returns_empty(self, config):
-        instance = _make_concrete("chunk_empty_agent")(config)
+        instance = _make_concrete("chunk_empty_agent")(config, AgentConfig())
         assert instance._chunk([]) == []
 
     def test_short_text_returned_unchanged(self, config):
-        instance = _make_concrete("chunk_short_agent")(config)
+        instance = _make_concrete("chunk_short_agent")(config, AgentConfig())
         chunk = _raw(text="hello")
         assert instance._chunk([chunk]) == [chunk]
 
     def test_long_text_is_split(self):
         cfg = ResearchConfig(**_REQUIRED, chunk_size=5, chunk_overlap=0)
-        instance = _make_concrete("chunk_split_agent")(cfg)
+        instance = _make_concrete("chunk_split_agent")(cfg, AgentConfig())
         result = instance._chunk([_raw(text="0123456789")])
         assert len(result) == 2
         assert result[0].text == "01234"
@@ -288,7 +288,7 @@ class TestChunk:
 
     def test_overlap_creates_overlapping_windows(self):
         cfg = ResearchConfig(**_REQUIRED, chunk_size=5, chunk_overlap=2)
-        instance = _make_concrete("chunk_overlap_agent")(cfg)
+        instance = _make_concrete("chunk_overlap_agent")(cfg, AgentConfig())
         result = instance._chunk([_raw(text="0123456789")])
         # step = 5 - 2 = 3: windows at 0, 3, 6
         assert result[0].text == "01234"
@@ -297,7 +297,7 @@ class TestChunk:
 
     def test_split_preserves_url_and_metadata(self):
         cfg = ResearchConfig(**_REQUIRED, chunk_size=5, chunk_overlap=0)
-        instance = _make_concrete("chunk_meta_agent")(cfg)
+        instance = _make_concrete("chunk_meta_agent")(cfg, AgentConfig())
         chunk = _raw(url="https://my.com", text="0123456789", source_type="latex")
         result = instance._chunk([chunk])
         assert all(c.url == "https://my.com" for c in result)
@@ -305,7 +305,7 @@ class TestChunk:
 
     def test_multiple_chunks_handled_independently(self):
         cfg = ResearchConfig(**_REQUIRED, chunk_size=5, chunk_overlap=0)
-        instance = _make_concrete("chunk_multi_agent")(cfg)
+        instance = _make_concrete("chunk_multi_agent")(cfg, AgentConfig())
         c1 = _raw(url="https://a.com", text="ABCDE")  # exactly size — no split
         c2 = _raw(url="https://b.com", text="0123456789")  # split into 2
         result = instance._chunk([c1, c2])
@@ -313,13 +313,13 @@ class TestChunk:
 
     def test_size_zero_returns_raw(self):
         cfg = ResearchConfig(**_REQUIRED, chunk_size=0, chunk_overlap=0)
-        instance = _make_concrete("chunk_zero_agent")(cfg)
+        instance = _make_concrete("chunk_zero_agent")(cfg, AgentConfig())
         chunks = [_raw()]
         assert instance._chunk(chunks) == chunks
 
     def test_overlap_gte_size_returns_raw(self):
         cfg = ResearchConfig(**_REQUIRED, chunk_size=5, chunk_overlap=5)
-        instance = _make_concrete("chunk_degen_agent")(cfg)
+        instance = _make_concrete("chunk_degen_agent")(cfg, AgentConfig())
         chunks = [_raw(text="hello world")]
         assert instance._chunk(chunks) == chunks
 
@@ -332,13 +332,13 @@ class TestChunk:
 class TestFilter:
     def test_filter_applies_per_url_cap(self, config):
         # Default CapFilter: max_chunks_per_url=3
-        instance = _make_concrete("filter_cap_agent")(config)
+        instance = _make_concrete("filter_cap_agent")(config, AgentConfig())
         chunks = [_raw(url="https://same.com", text=f"text {i}") for i in range(5)]
         result = instance._filter(chunks, "q")
         assert len(result) == 3
 
     def test_filter_passes_chunks_within_limits(self, config):
-        instance = _make_concrete("filter_pass_agent")(config)
+        instance = _make_concrete("filter_pass_agent")(config, AgentConfig())
         chunks = [_raw(url=f"https://example.com/{i}") for i in range(3)]
         result = instance._filter(chunks, "q")
         assert len(result) == 3
@@ -348,7 +348,7 @@ class TestFilter:
         mock_filter = MagicMock()
         mock_filter.filter.return_value = []
         cfg = ResearchConfig(**_REQUIRED, chunk_filter=mock_filter)
-        instance = _make_concrete("filter_mock_agent")(cfg)
+        instance = _make_concrete("filter_mock_agent")(cfg, AgentConfig())
         chunks = [_raw()]
         instance._filter(chunks, "my query")
         mock_filter.filter.assert_called_once_with(chunks, "my query")
@@ -361,14 +361,14 @@ class TestFilter:
 
 class TestRetrievePipeline:
     async def test_retrieve_calls_search_and_returns_list(self, config):
-        instance = _make_concrete("pipeline_agent")(config)
+        instance = _make_concrete("pipeline_agent")(config, AgentConfig())
         instance._search = AsyncMock(return_value=[_raw()])
         result = await instance._retrieve(SubQuery(query="q"))
         instance._search.assert_awaited_once()
         assert isinstance(result, list)
 
     async def test_retrieve_passes_sub_query_to_search(self, config):
-        instance = _make_concrete("pipeline_sq_agent")(config)
+        instance = _make_concrete("pipeline_sq_agent")(config, AgentConfig())
         instance._search = AsyncMock(return_value=[])
         sq = SubQuery(query="specific")
         await instance._retrieve(sq)
@@ -376,7 +376,7 @@ class TestRetrievePipeline:
 
     async def test_retrieve_applies_chunking(self):
         cfg = ResearchConfig(**_REQUIRED, chunk_size=5, chunk_overlap=0)
-        instance = _make_concrete("pipeline_chunk_agent")(cfg)
+        instance = _make_concrete("pipeline_chunk_agent")(cfg, AgentConfig())
         # 10-char text splits into 2 chunks of size 5
         instance._search = AsyncMock(return_value=[_raw(text="0123456789")])
         result = await instance._retrieve(SubQuery(query="q"))
@@ -384,7 +384,7 @@ class TestRetrievePipeline:
 
     async def test_retrieve_applies_filtering(self):
         cfg = ResearchConfig(**_REQUIRED, chunk_size=1000, chunk_overlap=0)
-        instance = _make_concrete("pipeline_filter_agent")(cfg)
+        instance = _make_concrete("pipeline_filter_agent")(cfg, AgentConfig())
         # Default CapFilter: max_chunks_per_url=3 — return 5 from same URL, expect 3
         instance._search = AsyncMock(
             return_value=[_raw(url="https://same.com", text=f"text {i}") for i in range(5)]
@@ -393,7 +393,7 @@ class TestRetrievePipeline:
         assert len(result) == 3
 
     async def test_retrieve_empty_search_returns_empty(self, config):
-        instance = _make_concrete("pipeline_empty_agent")(config)
+        instance = _make_concrete("pipeline_empty_agent")(config, AgentConfig())
         instance._search = AsyncMock(return_value=[])
         result = await instance._retrieve(SubQuery(query="q"))
         assert result == []
@@ -419,34 +419,34 @@ def _reset_rate_limit():
 
 class TestFetchWithRetry:
     async def test_success_returns_chunks(self, config):
-        instance = _make_concrete("fwr_ok")(config)
+        instance = _make_concrete("fwr_ok")(config, AgentConfig())
         chunks = [_raw()]
         instance._search = AsyncMock(return_value=chunks)
         result = await instance._fetch_with_retry(SubQuery(query="q"))
         assert result == chunks
 
     async def test_404_returns_empty(self, config):
-        instance = _make_concrete("fwr_404")(config)
+        instance = _make_concrete("fwr_404")(config, AgentConfig())
         instance._search = AsyncMock(side_effect=_http_error(404))
         result = await instance._fetch_with_retry(SubQuery(query="q"))
         assert result == []
 
     async def test_401_raises_immediately(self, config):
-        instance = _make_concrete("fwr_401")(config)
+        instance = _make_concrete("fwr_401")(config, AgentConfig())
         instance._search = AsyncMock(side_effect=_http_error(401))
         with pytest.raises(httpx.HTTPStatusError):
             await instance._fetch_with_retry(SubQuery(query="q"))
         assert instance._search.await_count == 1
 
     async def test_403_raises_immediately(self, config):
-        instance = _make_concrete("fwr_403")(config)
+        instance = _make_concrete("fwr_403")(config, AgentConfig())
         instance._search = AsyncMock(side_effect=_http_error(403))
         with pytest.raises(httpx.HTTPStatusError):
             await instance._fetch_with_retry(SubQuery(query="q"))
         assert instance._search.await_count == 1
 
     async def test_429_retries_until_max_retries_then_raises(self, config):
-        instance = _make_concrete("fwr_429")(config)
+        instance = _make_concrete("fwr_429")(config, AgentConfig())
         instance._search = AsyncMock(side_effect=_http_error(429))
         with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(httpx.HTTPStatusError):
@@ -454,7 +454,7 @@ class TestFetchWithRetry:
         assert instance._search.await_count == config.max_retries + 1
 
     async def test_5xx_retries_until_max_retries_then_raises(self, config):
-        instance = _make_concrete("fwr_500")(config)
+        instance = _make_concrete("fwr_500")(config, AgentConfig())
         instance._search = AsyncMock(side_effect=_http_error(500))
         with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(httpx.HTTPStatusError):
@@ -462,7 +462,7 @@ class TestFetchWithRetry:
         assert instance._search.await_count == config.max_retries + 1
 
     async def test_connect_error_retries_then_raises(self, config):
-        instance = _make_concrete("fwr_conn")(config)
+        instance = _make_concrete("fwr_conn")(config, AgentConfig())
         instance._search = AsyncMock(side_effect=httpx.ConnectError("refused"))
         with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(httpx.ConnectError):
@@ -470,7 +470,7 @@ class TestFetchWithRetry:
         assert instance._search.await_count == config.max_retries + 1
 
     async def test_timeout_retries_then_raises(self, config):
-        instance = _make_concrete("fwr_timeout")(config)
+        instance = _make_concrete("fwr_timeout")(config, AgentConfig())
         instance._search = AsyncMock(side_effect=httpx.TimeoutException("timed out"))
         with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
             with pytest.raises(httpx.TimeoutException):
@@ -478,7 +478,7 @@ class TestFetchWithRetry:
         assert instance._search.await_count == config.max_retries + 1
 
     async def test_backoff_sleep_values_match_config(self, config):
-        instance = _make_concrete("fwr_backoff")(config)
+        instance = _make_concrete("fwr_backoff")(config, AgentConfig())
         instance._search = AsyncMock(side_effect=_http_error(503))
         mock_sleep = AsyncMock()
         with patch("mara.agents.base.asyncio.sleep", mock_sleep):
@@ -492,7 +492,7 @@ class TestFetchWithRetry:
         assert actual == expected
 
     async def test_succeeds_after_transient_failure(self, config):
-        instance = _make_concrete("fwr_transient")(config)
+        instance = _make_concrete("fwr_transient")(config, AgentConfig())
         ok_chunk = _raw()
         instance._search = AsyncMock(
             side_effect=[_http_error(429), [ok_chunk]]
@@ -509,7 +509,7 @@ class TestFetchWithRetry:
         cache = InMemoryCache()
         cfg = ResearchConfig(**_REQUIRED, search_cache=cache, _env_file=None)
         cls = _make_concrete("fwr_cache_hit")
-        instance = cls(cfg)
+        instance = cls(cfg, AgentConfig())
         cached_chunks = [_raw(text="cached")]
         await cache.set("fwr_cache_hit", "q", cached_chunks)
 
@@ -526,7 +526,7 @@ class TestFetchWithRetry:
         cache = InMemoryCache()
         cfg = ResearchConfig(**_REQUIRED, search_cache=cache, _env_file=None)
         cls = _make_concrete("fwr_cache_miss")
-        instance = cls(cfg)
+        instance = cls(cfg, AgentConfig())
         fresh = [_raw(text="from network")]
         instance._search = AsyncMock(return_value=fresh)
 
@@ -542,7 +542,7 @@ class TestFetchWithRetry:
         cache = InMemoryCache()
         cfg = ResearchConfig(**_REQUIRED, search_cache=cache, _env_file=None)
         cls = _make_concrete("fwr_cache_err")
-        instance = cls(cfg)
+        instance = cls(cfg, AgentConfig())
         instance._search = AsyncMock(side_effect=_http_error(500))
 
         with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
@@ -559,14 +559,14 @@ class TestFetchWithRetry:
 
 class TestAcquireRateLimitSlot:
     async def test_no_sleep_when_interval_zero(self, config):
-        instance = _make_concrete("rl_zero")(config)
+        instance = _make_concrete("rl_zero")(config, AgentConfig())
         mock_sleep = AsyncMock()
         with patch("mara.agents.base.asyncio.sleep", mock_sleep):
             await instance._acquire_rate_limit_slot()
         mock_sleep.assert_not_called()
 
     async def test_no_sleep_on_first_call_with_positive_interval(self, config):
-        instance = _make_concrete("rl_first")(config)
+        instance = _make_concrete("rl_first")(config, AgentConfig())
         instance._get_rate_limit_interval = lambda: 1.0
         mock_sleep = AsyncMock()
         with patch("mara.agents.base.asyncio.sleep", mock_sleep), \
@@ -575,7 +575,7 @@ class TestAcquireRateLimitSlot:
         mock_sleep.assert_not_called()
 
     async def test_sleep_called_when_within_interval(self, config):
-        instance = _make_concrete("rl_sleep")(config)
+        instance = _make_concrete("rl_sleep")(config, AgentConfig())
         instance._get_rate_limit_interval = lambda: 2.0
         agent_type = instance._agent_type()
         SpecialistAgent._last_called[agent_type] = 99.5
@@ -612,7 +612,7 @@ class TestAcquireRateLimitSlot:
         assert SpecialistAgent._last_called == {}
 
     async def test_zero_division_in_interval_skips_rate_limit(self, config):
-        instance = _make_concrete("rl_zdiv")(config)
+        instance = _make_concrete("rl_zdiv")(config, AgentConfig())
         instance._get_rate_limit_interval = MagicMock(side_effect=ZeroDivisionError)
         mock_sleep = AsyncMock()
         with patch("mara.agents.base.asyncio.sleep", mock_sleep):

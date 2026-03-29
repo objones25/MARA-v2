@@ -160,7 +160,7 @@ class ArxivAgent(SpecialistAgent):
             # is NOT percent-encoded (ArXiv rejects %3A).
             qs = (
                 f"search_query=all:{urllib.parse.quote(sub_query.query)}"
-                f"&max_results={self.config.arxiv_max_results}"
+                f"&max_results={self.agent_config.max_results}"
                 f"&sortBy=relevance"
             )
             resp = await client.get(f"{_API_URL}?{qs}")

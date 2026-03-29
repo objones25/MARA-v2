@@ -57,8 +57,6 @@ Optional variables and their defaults:
 | `LLM_PROVIDER`                 | `featherless-ai`                   | LangChain provider string                         |
 | `MAX_RETRIES`                  | `3`                                | HTTP retry attempts per agent call                |
 | `RETRY_BACKOFF_BASE`           | `2.0`                              | Exponential back-off base (seconds)               |
-| `S2_MAX_RPS`                   | `1.0`                              | Semantic Scholar requests per second              |
-| `PUBMED_RATE_LIMIT_PER_SECOND` | `3.0`                              | PubMed requests per second (10 with NCBI API key) |
 | `CHUNK_SIZE`                   | `1000`                             | Character window size for chunking                |
 | `CHUNK_OVERLAP`                | `200`                              | Character overlap between adjacent chunks         |
 

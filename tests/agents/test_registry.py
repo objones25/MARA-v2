@@ -15,7 +15,7 @@ class TestAgentDecorator:
     def test_registers_class_by_name(self):
         @agent("test_agent")
         class TestAgent:
-            def __init__(self, config):
+            def __init__(self, config, agent_config):
                 self.config = config
 
         assert "test_agent" in reg_mod._REGISTRY
@@ -128,7 +128,7 @@ class TestGetAgents:
 
         @agent("recorder")
         class Recorder:
-            def __init__(self, cfg):
+            def __init__(self, cfg, agent_config):
                 instances.append(cfg)
 
         result = get_agents(config)
@@ -139,12 +139,12 @@ class TestGetAgents:
     def test_returns_one_instance_per_registered_agent(self, config):
         @agent("one")
         class One:
-            def __init__(self, cfg):
+            def __init__(self, cfg, agent_config):
                 pass
 
         @agent("two")
         class Two:
-            def __init__(self, cfg):
+            def __init__(self, cfg, agent_config):
                 pass
 
         result = get_agents(config)
@@ -153,7 +153,7 @@ class TestGetAgents:
     def test_instance_types_match_registered_classes(self, config):
         @agent("typed")
         class TypedAgent:
-            def __init__(self, cfg):
+            def __init__(self, cfg, agent_config):
                 pass
 
         result = get_agents(config)

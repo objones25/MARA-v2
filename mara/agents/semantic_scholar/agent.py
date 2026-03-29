@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 import httpx
 
 from mara.agents.base import SpecialistAgent
-from mara.agents.registry import agent
+from mara.agents.registry import AgentConfig, agent
 from mara.agents.types import RawChunk, SubQuery
 
 _log = logging.getLogger(__name__)
@@ -69,13 +69,10 @@ def _parse_snippet_response(data: dict) -> list[dict]:
         "social network analysis of misinformation spread",
         "economic impact of automation on labor markets",
     ],
+    config=AgentConfig(rate_limit_rps=1.0),
 )
 class SemanticScholarAgent(SpecialistAgent):
     """Retrieves research snippets from the Semantic Scholar API."""
-
-    def _get_rate_limit_interval(self) -> float:
-        """Return the minimum seconds between discovery calls (= 1 / s2_max_rps)."""
-        return 1.0 / self.config.s2_max_rps
 
     def _chunk(self, raw: list[RawChunk]) -> list[RawChunk]:
         """S2 snippets are pre-chunked; pass through unchanged."""
@@ -92,10 +89,10 @@ class SemanticScholarAgent(SpecialistAgent):
         async with httpx.AsyncClient() as client:
             response = await client.get(
                 _S2_BASE_URL,
-                headers={"x-api-key": self.config.s2_api_key},
+                headers={"x-api-key": self.agent_config.api_key},
                 params={
                     "query": sub_query.query,
-                    "limit": self.config.s2_max_results,
+                    "limit": self.agent_config.max_results,
                 },
             )
 

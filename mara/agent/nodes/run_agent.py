@@ -29,8 +29,10 @@ async def run_agent_node(state: AgentRunState, config: RunnableConfig) -> dict:
 
     _log.debug("run_agent: agent=%r query=%r", agent_type, sub_query.query[:60])
 
-    agent_cls = _REGISTRY[agent_type].cls
-    agent = agent_cls(research_config)
+    reg = _REGISTRY[agent_type]
+    overrides: dict = getattr(research_config, "agent_config_overrides", {})
+    agent_config = overrides.get(agent_type, reg.config)
+    agent = reg.cls(research_config, agent_config)
     try:
         findings = await agent.run(sub_query)
     except Exception as exc:

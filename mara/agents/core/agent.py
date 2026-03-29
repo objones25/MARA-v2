@@ -79,13 +79,13 @@ class COREAgent(SpecialistAgent):
             httpx.HTTPStatusError: if the CORE search API returns a non-2xx response.
         """
         retrieved_at = _now_iso()
-        headers = {"Authorization": f"Bearer {self.config.core_api_key}"}
+        headers = {"Authorization": f"Bearer {self.agent_config.api_key}"}
 
         async with httpx.AsyncClient(follow_redirects=True) as client:
             # Discover papers
             search_resp = await client.get(
                 _CORE_SEARCH_URL,
-                params={"q": sub_query.query, "limit": self.config.core_max_results},
+                params={"q": sub_query.query, "limit": self.agent_config.max_results},
                 headers=headers,
             )
             search_resp.raise_for_status()

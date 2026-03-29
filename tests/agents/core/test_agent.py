@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from mara.agents.registry import AgentConfig
 from mara.agents.core.agent import (
     ABSTRACT_ONLY,
     FULLTEXT,
@@ -36,7 +37,16 @@ def _config(**overrides):
 
 
 def _make_agent(**cfg_overrides) -> COREAgent:
-    return COREAgent(config=_config(**cfg_overrides))
+    max_results = cfg_overrides.pop("core_max_results", None)
+    cfg = _config(**cfg_overrides)
+    agent_config = cfg.agent_config_overrides.get("core", AgentConfig())
+    if max_results is not None:
+        agent_config = AgentConfig(
+            api_key=agent_config.api_key,
+            max_results=max_results,
+            rate_limit_rps=agent_config.rate_limit_rps,
+        )
+    return COREAgent(config=cfg, agent_config=agent_config)
 
 
 def _json_response(data: dict, status_code: int = 200) -> MagicMock:

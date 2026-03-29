@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from mara.agents.registry import AgentConfig
 from mara.agents.pubmed.agent import (
     ABSTRACT_ONLY,
     PMC_XML,
@@ -35,7 +36,17 @@ def _config(**overrides):
 
 
 def _make_agent(**cfg_overrides) -> PubMedAgent:
-    return PubMedAgent(config=_config(**cfg_overrides))
+    max_results = cfg_overrides.pop("pubmed_max_results", None)
+    rate_limit = cfg_overrides.pop("pubmed_rate_limit_per_second", None)
+    cfg = _config(**cfg_overrides)
+    agent_config = cfg.agent_config_overrides.get("pubmed", AgentConfig())
+    if max_results is not None or rate_limit is not None:
+        agent_config = AgentConfig(
+            api_key=agent_config.api_key,
+            max_results=max_results if max_results is not None else agent_config.max_results,
+            rate_limit_rps=rate_limit if rate_limit is not None else agent_config.rate_limit_rps,
+        )
+    return PubMedAgent(config=cfg, agent_config=agent_config)
 
 
 def _json_response(data: dict, status_code: int = 200) -> MagicMock:

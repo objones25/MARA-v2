@@ -45,7 +45,7 @@ def _fake_agent_cls(agent_type: str):
     """Return a fake agent class that returns a valid AgentFindings."""
 
     class FakeAgent:
-        def __init__(self, config):
+        def __init__(self, config, agent_config):
             self.config = config
 
         async def run(self, sub_query: SubQuery):

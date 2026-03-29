@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 import httpx
 
@@ -14,6 +15,9 @@ from mara.agents.types import AgentFindings, RawChunk, SubQuery, VerifiedChunk
 from mara.config import ResearchConfig
 from mara.merkle.hasher import hash_chunk
 from mara.merkle.tree import build_merkle_tree
+
+if TYPE_CHECKING:
+    from mara.agents.registry import AgentConfig
 
 _log = logging.getLogger(__name__)
 
@@ -57,8 +61,9 @@ class SpecialistAgent(ABC):
     _locks: dict[str, asyncio.Lock] = {}
     _last_called: dict[str, float] = {}
 
-    def __init__(self, config: ResearchConfig) -> None:
+    def __init__(self, config: ResearchConfig, agent_config: AgentConfig) -> None:
         self.config = config
+        self.agent_config = agent_config
         from mara.agents.registry import _REGISTRY
 
         self._cached_agent_type: str = next(
@@ -78,11 +83,11 @@ class SpecialistAgent(ABC):
     def _get_rate_limit_interval(self) -> float:
         """Return the minimum seconds between consecutive ``_search()`` calls.
 
-        Override in subclasses that need config-dependent intervals, e.g.::
-
-            def _get_rate_limit_interval(self) -> float:
-                return 1.0 / self.config.s2_max_rps
+        Reads ``agent_config.rate_limit_rps`` when set (> 0), otherwise falls
+        back to the class-level ``_rate_limit_interval`` variable.
         """
+        if self.agent_config.rate_limit_rps > 0.0:
+            return 1.0 / self.agent_config.rate_limit_rps
         return self._rate_limit_interval
 
     @classmethod

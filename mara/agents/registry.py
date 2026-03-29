@@ -14,6 +14,20 @@ _log = logging.getLogger(__name__)
 
 
 @dataclass
+class AgentConfig:
+    """Per-agent tunable parameters.
+
+    Stored as the default on ``AgentRegistration`` and merged with runtime
+    overrides from ``ResearchConfig.agent_config_overrides`` at agent
+    instantiation time.
+    """
+
+    api_key: str = ""
+    max_results: int = 20
+    rate_limit_rps: float = 0.0  # 0 = no rate limiting (use class-level default)
+
+
+@dataclass
 class AgentRegistration:
     """Metadata for a registered specialist agent.
 
@@ -25,6 +39,7 @@ class AgentRegistration:
     capabilities: list[str] = field(default_factory=list)
     limitations: list[str] = field(default_factory=list)
     example_queries: list[str] = field(default_factory=list)
+    config: AgentConfig = field(default_factory=AgentConfig)
 
 
 _REGISTRY: dict[str, AgentRegistration] = {}
@@ -36,6 +51,7 @@ def agent(
     capabilities: list[str] | None = None,
     limitations: list[str] | None = None,
     example_queries: list[str] | None = None,
+    config: AgentConfig | None = None,
 ):
     """Class decorator that registers a SpecialistAgent subclass by name.
 
@@ -45,6 +61,7 @@ def agent(
         capabilities: What this agent does well (bullet points for the planner).
         limitations: Known weaknesses or content types to avoid routing here.
         example_queries: Representative sub-queries ideal for this agent.
+        config: Default ``AgentConfig`` for this agent (rate limits, max results).
 
     Raises:
         ValueError: If *name* is already registered.
@@ -61,6 +78,7 @@ def agent(
             capabilities=capabilities or [],
             limitations=limitations or [],
             example_queries=example_queries or [],
+            config=config or AgentConfig(),
         )
         _log.debug("registered agent %r → %s", name, cls.__qualname__)
         return cls
@@ -70,7 +88,8 @@ def agent(
 
 def get_agents(config: ResearchConfig) -> list[SpecialistAgent]:
     """Instantiate every registered agent with *config* and return the list."""
-    agents = [reg.cls(config) for reg in _REGISTRY.values()]
+    overrides: dict[str, AgentConfig] = getattr(config, "agent_config_overrides", {})
+    agents = [reg.cls(config, overrides.get(name, reg.config)) for name, reg in _REGISTRY.items()]
     _log.debug("instantiated %d agent(s): %s", len(agents), list(_REGISTRY.keys()))
     return agents
 

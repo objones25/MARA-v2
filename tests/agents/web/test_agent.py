@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from mara.agents.types import SubQuery
+from mara.agents.registry import AgentConfig
 from mara.agents.web.agent import WebAgent, _extract_urls
 
 
@@ -113,7 +114,7 @@ class TestWebAgentSearch:
             new=AsyncMock(side_effect=lambda urls, *a, **kw: urls),
         )
 
-        agent = WebAgent(config)
+        agent = WebAgent(config, AgentConfig())
         chunks = await agent._search(SubQuery(query="quantum computing"))
 
         assert len(chunks) > 0
@@ -137,7 +138,7 @@ class TestWebAgentSearch:
             new=AsyncMock(side_effect=lambda urls, *a, **kw: urls),
         )
 
-        agent = WebAgent(config)
+        agent = WebAgent(config, AgentConfig())
         await agent._search(SubQuery(query="news"))
 
         _, kwargs = mock_client.get.call_args
@@ -159,7 +160,7 @@ class TestWebAgentSearch:
             new=AsyncMock(side_effect=lambda urls, *a, **kw: urls),
         )
 
-        agent = WebAgent(config)
+        agent = WebAgent(config, AgentConfig())
         await agent._search(SubQuery(query="news"))
 
         _, kwargs = mock_client.get.call_args
@@ -182,7 +183,7 @@ class TestWebAgentSearch:
             new=AsyncMock(side_effect=lambda urls, *a, **kw: urls),
         )
 
-        agent = WebAgent(config)
+        agent = WebAgent(config, AgentConfig())
         chunks = await agent._search(SubQuery(query="test"))
 
         assert chunks == []
@@ -207,7 +208,7 @@ class TestWebAgentSearch:
             new=AsyncMock(),
         )
 
-        agent = WebAgent(config)
+        agent = WebAgent(config, AgentConfig())
         await agent._search(SubQuery(query="test"))
 
         mock_rank.assert_not_called()
@@ -234,7 +235,7 @@ class TestWebAgentSearch:
             new=AsyncMock(side_effect=lambda urls, *a, **kw: urls),
         )
 
-        agent = WebAgent(config)
+        agent = WebAgent(config, AgentConfig())
         chunks = await agent._search(SubQuery(query="test"))
 
         assert mock_scrape.call_count == 2
@@ -258,7 +259,7 @@ class TestWebAgentSearch:
 
         mocker.patch("mara.agents.web.agent.httpx.AsyncClient", return_value=mock_client)
 
-        agent = WebAgent(config)
+        agent = WebAgent(config, AgentConfig())
         with pytest.raises(httpx.HTTPStatusError):
             await agent._search(SubQuery(query="test"))
 
@@ -278,7 +279,7 @@ class TestWebAgentSearch:
             new=AsyncMock(side_effect=lambda urls, *a, **kw: urls),
         )
 
-        agent = WebAgent(config)
+        agent = WebAgent(config, AgentConfig())
         await agent._search(SubQuery(query="test"))
 
         _, kwargs = mock_client.get.call_args
@@ -299,7 +300,7 @@ class TestWebAgentSearch:
             new=AsyncMock(side_effect=lambda urls, *a, **kw: urls),
         )
 
-        agent = WebAgent(config)
+        agent = WebAgent(config, AgentConfig())
         chunks = await agent._search(SubQuery(query="test"))
 
         assert chunks == []
@@ -320,7 +321,7 @@ class TestWebAgentSearch:
             new=AsyncMock(),
         )
 
-        agent = WebAgent(config)
+        agent = WebAgent(config, AgentConfig())
         chunks = await agent._search(SubQuery(query="test"))
 
         mock_rank.assert_not_called()

@@ -16,7 +16,7 @@ def _fake_agent_cls(findings_to_return):
     """Return a fake agent class whose run() returns findings_to_return."""
 
     class FakeAgent:
-        def __init__(self, config):
+        def __init__(self, config, agent_config):
             self.config = config
 
         async def run(self, sub_query):
@@ -46,7 +46,7 @@ async def test_run_agent_node_instantiates_with_config(runnable_config) -> None:
     received_config = {}
 
     class FakeAgent:
-        def __init__(self, config):
+        def __init__(self, config, agent_config):
             received_config["config"] = config
 
         async def run(self, sub_query):
@@ -70,7 +70,7 @@ async def test_run_agent_node_key_error_on_unknown_agent(runnable_config) -> Non
 
 async def test_run_agent_node_returns_empty_on_agent_exception(runnable_config) -> None:
     class FailingAgent:
-        def __init__(self, config):
+        def __init__(self, config, agent_config):
             pass
 
         async def run(self, sub_query):
