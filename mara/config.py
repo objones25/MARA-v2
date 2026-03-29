@@ -87,6 +87,8 @@ class ResearchConfig(BaseSettings):
     @model_validator(mode="after")
     def _wire_api_keys(self) -> "ResearchConfig":
         """Push flat API keys into agent_config_overrides, preserving other fields."""
+        from dataclasses import replace as _dc_replace
+
         from mara.agents.registry import AgentConfig, _REGISTRY
 
         overrides = dict(self.agent_config_overrides)
@@ -100,11 +102,7 @@ class ResearchConfig(BaseSettings):
             if base is None:
                 reg = _REGISTRY.get(agent_name)
                 base = reg.config if reg is not None else AgentConfig()
-            overrides[agent_name] = AgentConfig(
-                api_key=api_key,
-                max_results=base.max_results,
-                rate_limit_rps=base.rate_limit_rps,
-            )
+            overrides[agent_name] = _dc_replace(base, api_key=api_key)
 
         self.agent_config_overrides = overrides
         return self

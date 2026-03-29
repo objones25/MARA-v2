@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from abc import ABC, abstractmethod
@@ -60,6 +61,7 @@ class SpecialistAgent(ABC):
     # Keyed by agent type string so distinct agent types don't interfere.
     _locks: dict[str, asyncio.Lock] = {}
     _last_called: dict[str, float] = {}
+    _semaphores: dict[str, asyncio.Semaphore] = {}
 
     def __init__(self, config: ResearchConfig, agent_config: AgentConfig) -> None:
         self.config = config
@@ -96,10 +98,16 @@ class SpecialistAgent(ABC):
         return cls._locks.setdefault(agent_type, asyncio.Lock())
 
     @classmethod
+    def _get_semaphore(cls, agent_type: str, max_concurrent: int) -> asyncio.Semaphore:
+        """Return (creating if absent) the per-agent-type concurrency semaphore."""
+        return cls._semaphores.setdefault(agent_type, asyncio.Semaphore(max_concurrent))
+
+    @classmethod
     def _reset_rate_limit_state(cls) -> None:
         """Clear all rate-limit state.  Call in test teardown fixtures."""
         cls._locks.clear()
         cls._last_called.clear()
+        cls._semaphores.clear()
 
     async def _acquire_rate_limit_slot(self) -> None:
         """Block until it is safe to call ``_search()`` again.
@@ -148,6 +156,15 @@ class SpecialistAgent(ABC):
         - ``429``/``5xx`` — transient; retry with back-off.
         - ``ConnectError``/``TimeoutException`` — transient; retry with back-off.
 
+        On ``429`` responses the ``Retry-After`` header value is used as the
+        sleep duration when present and valid; otherwise the normal exponential
+        back-off applies.
+
+        ``agent_config.retry_backoff_base`` overrides ``config.retry_backoff_base``
+        when set (> 0).  ``agent_config.max_concurrent`` (> 0) gates the entire
+        retry loop behind a per-agent-type semaphore so only *N* ``_search()``
+        calls run simultaneously.
+
         After ``config.max_retries`` failed attempts the final exception
         propagates to the caller.
         """
@@ -163,73 +180,99 @@ class SpecialistAgent(ABC):
             )
             return cached
 
-        await self._acquire_rate_limit_slot()
-        last_exc: Exception | None = None
-        total = self.config.max_retries + 1
-        for attempt in range(total):
-            _log.debug(
-                "attempt %d/%d",
-                attempt + 1,
+        backoff_base = (
+            self.agent_config.retry_backoff_base
+            if self.agent_config.retry_backoff_base > 0
+            else self.config.retry_backoff_base
+        )
+
+        max_conc = self.agent_config.max_concurrent
+        ctx = (
+            self._get_semaphore(agent_type, max_conc)
+            if max_conc > 0
+            else contextlib.nullcontext()
+        )
+
+        async with ctx:
+            await self._acquire_rate_limit_slot()
+            last_exc: Exception | None = None
+            total = self.config.max_retries + 1
+            for attempt in range(total):
+                retry_after_override: float | None = None
+                _log.debug(
+                    "attempt %d/%d",
+                    attempt + 1,
+                    total,
+                    extra={"agent": agent_type},
+                )
+                try:
+                    result = await self._search(sub_query)
+                    await cache.set(agent_type, sub_query.query, result)
+                    return result
+                except httpx.HTTPStatusError as exc:
+                    status = exc.response.status_code
+                    if status in (401, 403):
+                        _log.warning(
+                            "auth error %d — aborting",
+                            status,
+                            extra={"agent": agent_type},
+                        )
+                        raise
+                    if status == 404:
+                        _log.debug("404 — returning empty", extra={"agent": agent_type})
+                        return []
+                    if status == 429:
+                        ra_str = exc.response.headers.get("Retry-After")
+                        if ra_str is not None:
+                            try:
+                                retry_after_override = float(ra_str)
+                            except (ValueError, TypeError):
+                                pass
+                    _log.warning(
+                        "HTTP %d on attempt %d — will retry: %s",
+                        status,
+                        attempt + 1,
+                        exc,
+                        extra={"agent": agent_type},
+                    )
+                    last_exc = exc
+                except httpx.ConnectError as exc:
+                    _log.warning(
+                        "connect error on attempt %d — will retry: %s",
+                        attempt + 1,
+                        exc,
+                        extra={"agent": agent_type},
+                    )
+                    last_exc = exc
+                except httpx.TimeoutException as exc:
+                    _log.warning(
+                        "timeout on attempt %d — will retry: %s",
+                        attempt + 1,
+                        exc,
+                        extra={"agent": agent_type},
+                    )
+                    last_exc = exc
+                if attempt < self.config.max_retries:
+                    backoff = (
+                        retry_after_override
+                        if retry_after_override is not None
+                        else backoff_base**attempt
+                    )
+                    _log.debug(
+                        "backing off %.1fs before attempt %d",
+                        backoff,
+                        attempt + 2,
+                        extra={"agent": agent_type},
+                    )
+                    await asyncio.sleep(backoff)
+            _log.error(
+                "all %d attempt(s) failed",
                 total,
                 extra={"agent": agent_type},
             )
-            try:
-                result = await self._search(sub_query)
-                await cache.set(agent_type, sub_query.query, result)
-                return result
-            except httpx.HTTPStatusError as exc:
-                status = exc.response.status_code
-                if status in (401, 403):
-                    _log.warning(
-                        "auth error %d — aborting",
-                        status,
-                        extra={"agent": agent_type},
-                    )
-                    raise
-                if status == 404:
-                    _log.debug("404 — returning empty", extra={"agent": agent_type})
-                    return []
-                _log.warning(
-                    "HTTP %d on attempt %d — will retry: %s",
-                    status,
-                    attempt + 1,
-                    exc,
-                    extra={"agent": agent_type},
-                )
-                last_exc = exc
-            except httpx.ConnectError as exc:
-                _log.warning(
-                    "connect error on attempt %d — will retry: %s",
-                    attempt + 1,
-                    exc,
-                    extra={"agent": agent_type},
-                )
-                last_exc = exc
-            except httpx.TimeoutException as exc:
-                _log.warning(
-                    "timeout on attempt %d — will retry: %s",
-                    attempt + 1,
-                    exc,
-                    extra={"agent": agent_type},
-                )
-                last_exc = exc
-            if attempt < self.config.max_retries:
-                backoff = self.config.retry_backoff_base**attempt
-                _log.debug(
-                    "backing off %.1fs before attempt %d",
-                    backoff,
-                    attempt + 2,
-                    extra={"agent": agent_type},
-                )
-                await asyncio.sleep(backoff)
-        _log.error(
-            "all %d attempt(s) failed",
-            total,
-            extra={"agent": agent_type},
-        )
-        if last_exc is None:  # pragma: no cover
-            raise RuntimeError("retry loop exited without exception or result")
-        raise last_exc
+            if last_exc is None:  # pragma: no cover
+                raise RuntimeError("retry loop exited without exception or result")
+            raise last_exc
 
     # ------------------------------------------------------------------
     # Agent identity

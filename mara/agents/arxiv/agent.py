@@ -26,7 +26,7 @@ from mara.agents.arxiv.fetcher import (
     fetch_source_tarball,
 )
 from mara.agents.base import SpecialistAgent
-from mara.agents.registry import agent
+from mara.agents.registry import AgentConfig, agent
 from mara.agents.types import RawChunk, SubQuery
 
 _log = logging.getLogger(__name__)
@@ -126,6 +126,7 @@ def _parse_feed(xml_text: str) -> list[dict]:
         "reinforcement learning from human feedback theory",
         "topological phases of matter",
     ],
+    config=AgentConfig(max_concurrent=1, retry_backoff_base=3.0),
 )
 class ArxivAgent(SpecialistAgent):
     """Retrieves research papers from ArXiv.

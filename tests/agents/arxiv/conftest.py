@@ -1,8 +1,7 @@
 import pytest
 
+import mara.agents.arxiv.agent  # noqa: F401 — ensure @agent decorator runs before we snapshot
 import mara.agents.registry as reg_mod
-from mara.agents.arxiv.agent import ArxivAgent
-from mara.agents.registry import AgentRegistration
 from mara.config import ResearchConfig
 
 _REQUIRED = {
@@ -14,6 +13,10 @@ _REQUIRED = {
     "ncbi_api_key": "ncbi-key",
 }
 
+# Capture the real registration (including config=AgentConfig(...)) at import time,
+# before isolate_registry (parent conftest) can clear it.
+_ARXIV_REGISTRATION = reg_mod._REGISTRY["arxiv"]
+
 
 @pytest.fixture()
 def config() -> ResearchConfig:
@@ -23,5 +26,5 @@ def config() -> ResearchConfig:
 @pytest.fixture(autouse=True)
 def register_arxiv_agent():
     """Re-register ArxivAgent after isolate_registry (parent conftest) clears it."""
-    reg_mod._REGISTRY["arxiv"] = AgentRegistration(cls=ArxivAgent)
+    reg_mod._REGISTRY["arxiv"] = _ARXIV_REGISTRATION
     yield

@@ -404,9 +404,10 @@ class TestRetrievePipeline:
 # ---------------------------------------------------------------------------
 
 
-def _http_error(status_code: int) -> httpx.HTTPStatusError:
+def _http_error(status_code: int, retry_after: str | None = None) -> httpx.HTTPStatusError:
     resp = MagicMock()
     resp.status_code = status_code
+    resp.headers = {"Retry-After": retry_after} if retry_after is not None else {}
     return httpx.HTTPStatusError("error", request=MagicMock(), response=resp)
 
 
@@ -551,6 +552,84 @@ class TestFetchWithRetry:
 
         assert await cache.get("fwr_cache_err", "q") is None
 
+    async def test_retry_after_header_used_when_present(self, config):
+        instance = _make_concrete("fwr_ra_present")(config, AgentConfig())
+        instance._search = AsyncMock(side_effect=_http_error(429, retry_after="60"))
+        mock_sleep = AsyncMock()
+        with patch("mara.agents.base.asyncio.sleep", mock_sleep):
+            with pytest.raises(httpx.HTTPStatusError):
+                await instance._fetch_with_retry(SubQuery(query="q"))
+        # First sleep must use the Retry-After value, not the normal backoff
+        assert mock_sleep.call_args_list[0] == ((60.0,), {})
+
+    async def test_retry_after_header_invalid_falls_back_to_backoff(self, config):
+        instance = _make_concrete("fwr_ra_invalid")(config, AgentConfig())
+        instance._search = AsyncMock(side_effect=_http_error(429, retry_after="not-a-number"))
+        mock_sleep = AsyncMock()
+        with patch("mara.agents.base.asyncio.sleep", mock_sleep):
+            with pytest.raises(httpx.HTTPStatusError):
+                await instance._fetch_with_retry(SubQuery(query="q"))
+        expected = [config.retry_backoff_base**i for i in range(config.max_retries)]
+        actual = [call.args[0] for call in mock_sleep.call_args_list]
+        assert actual == pytest.approx(expected)
+
+    async def test_agent_config_retry_backoff_base_overrides_config(self, config):
+        agent_cfg = AgentConfig(retry_backoff_base=3.0)
+        instance = _make_concrete("fwr_cfg_backoff")(config, agent_cfg)
+        instance._search = AsyncMock(side_effect=_http_error(503))
+        mock_sleep = AsyncMock()
+        with patch("mara.agents.base.asyncio.sleep", mock_sleep):
+            with pytest.raises(httpx.HTTPStatusError):
+                await instance._fetch_with_retry(SubQuery(query="q"))
+        expected = [3.0**i for i in range(config.max_retries)]
+        actual = [call.args[0] for call in mock_sleep.call_args_list]
+        assert actual == pytest.approx(expected)
+
+    async def test_max_concurrent_one_serializes_calls(self, config):
+        agent_cfg = AgentConfig(max_concurrent=1)
+        cls = _make_concrete("fwr_conc")
+        order: list[str] = []
+
+        async def slow_search(sq: SubQuery) -> list[RawChunk]:
+            order.append("start")
+            await asyncio.sleep(0.01)
+            order.append("end")
+            return []
+
+        instance1 = cls(config, agent_cfg)
+        instance2 = cls(config, agent_cfg)
+        instance1._search = slow_search
+        instance2._search = slow_search
+
+        await asyncio.gather(
+            instance1._fetch_with_retry(SubQuery(query="q1")),
+            instance2._fetch_with_retry(SubQuery(query="q2")),
+        )
+        assert order == ["start", "end", "start", "end"]
+
+    async def test_max_concurrent_zero_does_not_restrict(self, config):
+        agent_cfg = AgentConfig(max_concurrent=0)
+        cls = _make_concrete("fwr_no_conc")
+        order: list[str] = []
+
+        async def fast_search(sq: SubQuery) -> list[RawChunk]:
+            order.append("start")
+            await asyncio.sleep(0)
+            order.append("end")
+            return []
+
+        instance1 = cls(config, agent_cfg)
+        instance2 = cls(config, agent_cfg)
+        instance1._search = fast_search
+        instance2._search = fast_search
+
+        await asyncio.gather(
+            instance1._fetch_with_retry(SubQuery(query="q1")),
+            instance2._fetch_with_retry(SubQuery(query="q2")),
+        )
+        # Both start before either ends when there is no semaphore
+        assert order == ["start", "start", "end", "end"]
+
 
 # ---------------------------------------------------------------------------
 # _acquire_rate_limit_slot() / _get_lock() / _reset_rate_limit_state()
@@ -618,3 +697,18 @@ class TestAcquireRateLimitSlot:
         with patch("mara.agents.base.asyncio.sleep", mock_sleep):
             await instance._acquire_rate_limit_slot()
         mock_sleep.assert_not_called()
+
+    def test_get_semaphore_creates_asyncio_semaphore(self, config):
+        sem = SpecialistAgent._get_semaphore("sem_new_agent", 2)
+        assert isinstance(sem, asyncio.Semaphore)
+
+    def test_get_semaphore_same_type_returns_same_instance(self, config):
+        sem_a = SpecialistAgent._get_semaphore("sem_same_type", 1)
+        sem_b = SpecialistAgent._get_semaphore("sem_same_type", 1)
+        assert sem_a is sem_b
+
+    def test_reset_clears_semaphores(self, config):
+        SpecialistAgent._get_semaphore("sem_reset_agent", 1)
+        assert "sem_reset_agent" in SpecialistAgent._semaphores
+        SpecialistAgent._reset_rate_limit_state()
+        assert SpecialistAgent._semaphores == {}
