@@ -61,10 +61,6 @@ def _now_iso() -> str:
 class COREAgent(SpecialistAgent):
     """Retrieves research papers from the CORE open-access aggregator."""
 
-    def _chunk(self, raw: list[RawChunk]) -> list[RawChunk]:
-        """CORE content is pre-chunked; pass through unchanged."""
-        return raw
-
     async def _search(self, sub_query: SubQuery) -> list[RawChunk]:
         """Fetch papers from CORE for *sub_query*.
 

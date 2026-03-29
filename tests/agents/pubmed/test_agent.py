@@ -126,19 +126,46 @@ def _mock_client(responses: list[MagicMock]) -> AsyncMock:
 
 
 class TestPubMedAgentChunk:
-    def test_chunk_returns_raw_unchanged(self):
-        agent = _make_agent()
-        sq = SubQuery(query="test")
-        chunks = [
-            RawChunk(
-                url="https://pubmed.ncbi.nlm.nih.gov/12345/",
-                text="Some text.",
-                retrieved_at="2024-01-01T00:00:00+00:00",
-                source_type=PMC_XML,
-                sub_query=sq.query,
-            )
-        ]
-        assert agent._chunk(chunks) is chunks
+    def test_chunk_small_pmc_section_passes_through(self):
+        ag = _make_agent(chunk_size=100, chunk_overlap=20)
+        chunk = RawChunk(
+            url="https://pubmed.ncbi.nlm.nih.gov/12345/",
+            text="Short section text.",
+            retrieved_at="2024-01-01T00:00:00+00:00",
+            source_type=PMC_XML,
+            sub_query="test",
+        )
+        result = ag._chunk([chunk])
+        assert len(result) == 1
+        assert result[0].text == "Short section text."
+
+    def test_chunk_large_pmc_section_splits(self):
+        ag = _make_agent(chunk_size=100, chunk_overlap=20)
+        long_text = "z" * 250
+        chunk = RawChunk(
+            url="https://pubmed.ncbi.nlm.nih.gov/12345/",
+            text=long_text,
+            retrieved_at="2024-01-01T00:00:00+00:00",
+            source_type=PMC_XML,
+            sub_query="test",
+        )
+        result = ag._chunk([chunk])
+        assert len(result) > 1
+        assert all(len(c.text) <= 100 for c in result)
+        assert all(c.source_type == PMC_XML for c in result)
+
+    def test_chunk_abstract_passes_through(self):
+        ag = _make_agent(chunk_size=100, chunk_overlap=20)
+        chunk = RawChunk(
+            url="https://pubmed.ncbi.nlm.nih.gov/99999/",
+            text="Abstract text.",
+            retrieved_at="2024-01-01T00:00:00+00:00",
+            source_type=ABSTRACT_ONLY,
+            sub_query="test",
+        )
+        result = ag._chunk([chunk])
+        assert len(result) == 1
+        assert result[0].text == "Abstract text."
 
 
 # ---------------------------------------------------------------------------

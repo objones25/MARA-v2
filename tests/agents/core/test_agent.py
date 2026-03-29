@@ -114,19 +114,48 @@ def _mock_client(responses: list[MagicMock]) -> AsyncMock:
 
 
 class TestCOREAgentChunk:
-    def test_chunk_returns_raw_unchanged(self):
-        agent = _make_agent()
-        sq = SubQuery(query="test")
-        chunks = [
-            RawChunk(
-                url="https://core.ac.uk/display/1",
-                text="Some full text.",
-                retrieved_at="2024-01-01T00:00:00+00:00",
-                source_type=FULLTEXT,
-                sub_query=sq.query,
-            )
-        ]
-        assert agent._chunk(chunks) is chunks
+    def test_chunk_small_text_passes_through(self):
+        ag = _make_agent(chunk_size=100, chunk_overlap=20)
+        chunk = RawChunk(
+            url="https://core.ac.uk/display/1",
+            text="Short abstract.",
+            retrieved_at="2024-01-01T00:00:00+00:00",
+            source_type=ABSTRACT_ONLY,
+            sub_query="test",
+        )
+        result = ag._chunk([chunk])
+        assert len(result) == 1
+        assert result[0].text == "Short abstract."
+
+    def test_chunk_large_fulltext_splits(self):
+        ag = _make_agent(chunk_size=100, chunk_overlap=20)
+        long_text = "x" * 250
+        chunk = RawChunk(
+            url="https://core.ac.uk/display/2",
+            text=long_text,
+            retrieved_at="2024-01-01T00:00:00+00:00",
+            source_type=FULLTEXT,
+            sub_query="test",
+        )
+        result = ag._chunk([chunk])
+        assert len(result) > 1
+        assert all(len(c.text) <= 100 for c in result)
+        assert all(c.url == chunk.url for c in result)
+        assert all(c.source_type == FULLTEXT for c in result)
+
+    def test_chunk_large_pdf_splits(self):
+        ag = _make_agent(chunk_size=100, chunk_overlap=20)
+        long_text = "y" * 300
+        chunk = RawChunk(
+            url="https://core.ac.uk/display/3",
+            text=long_text,
+            retrieved_at="2024-01-01T00:00:00+00:00",
+            source_type=PDF_DOWNLOADED,
+            sub_query="test",
+        )
+        result = ag._chunk([chunk])
+        assert len(result) > 1
+        assert all(c.source_type == PDF_DOWNLOADED for c in result)
 
 
 # ---------------------------------------------------------------------------

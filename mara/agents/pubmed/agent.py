@@ -67,10 +67,6 @@ def _now_iso() -> str:
 class PubMedAgent(SpecialistAgent):
     """Retrieves research papers from PubMed / PMC via NCBI eUtils."""
 
-    def _chunk(self, raw: list[RawChunk]) -> list[RawChunk]:
-        """PMC sections and abstracts are pre-chunked; pass through unchanged."""
-        return raw
-
     def _ncbi_params(self, **kwargs: object) -> dict:
         """Build an NCBI params dict, including ``api_key`` only when configured."""
         params: dict = dict(kwargs)
