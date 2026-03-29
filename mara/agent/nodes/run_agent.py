@@ -31,7 +31,16 @@ async def run_agent_node(state: AgentRunState, config: RunnableConfig) -> dict:
 
     agent_cls = _REGISTRY[agent_type]
     agent = agent_cls(research_config)
-    findings = await agent.run(sub_query)
+    try:
+        findings = await agent.run(sub_query)
+    except Exception as exc:
+        _log.warning(
+            "run_agent: agent=%r failed for query=%r: %s",
+            agent_type,
+            sub_query.query[:60],
+            exc,
+        )
+        return {"findings": []}
 
     _log.debug(
         "run_agent: agent=%r returned %d chunk(s)", agent_type, findings.chunk_count

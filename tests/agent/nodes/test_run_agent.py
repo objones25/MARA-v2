@@ -60,3 +60,20 @@ async def test_run_agent_node_key_error_on_unknown_agent(runnable_config) -> Non
     with patch("mara.agent.nodes.run_agent._REGISTRY", {}):
         with pytest.raises(KeyError):
             await run_agent_node(state, runnable_config)
+
+
+async def test_run_agent_node_returns_empty_on_agent_exception(runnable_config) -> None:
+    class FailingAgent:
+        def __init__(self, config):
+            pass
+
+        async def run(self, sub_query):
+            raise RuntimeError("boom")
+
+    fake_registry = {"failing": FailingAgent}
+    state = {"sub_query": SubQuery(query="q"), "agent_type": "failing"}
+
+    with patch("mara.agent.nodes.run_agent._REGISTRY", fake_registry):
+        result = await run_agent_node(state, runnable_config)
+
+    assert result == {"findings": []}

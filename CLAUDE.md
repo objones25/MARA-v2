@@ -18,7 +18,10 @@ uv run pytest tests/path/to/test_file.py
 uv run pytest --cov=mara --cov-branch --cov-report=term-missing --cov-fail-under=98
 
 # Run the CLI
-uv run mara run "your research query"
+uv run mara "your research query"
+
+# Run the CLI with JSON output
+uv run mara --json "your research query"
 ```
 
 ## Architecture

@@ -377,7 +377,7 @@ class TestArxivAgentSearch:
             await agent._search(SubQuery(query="test"))
 
     async def test_rate_limit_sleep_between_papers(self, config, mocker):
-        """asyncio.sleep is called once between two papers."""
+        """asyncio.sleep is called twice: once for the discovery lock delay, once between papers."""
         mock_sleep = mocker.patch("asyncio.sleep", new_callable=AsyncMock)
 
         tex = r"\section{A}" + "\nContent."
@@ -402,9 +402,10 @@ class TestArxivAgentSearch:
         agent = ArxivAgent(config)
         await agent._search(SubQuery(query="test"))
 
-        # Sleep called exactly once (between paper 0 and paper 1)
-        assert mock_sleep.call_count == 1
-        mock_sleep.assert_called_once_with(pytest.approx(3.0))
+        # 1 sleep inside discovery lock + 1 sleep between the two papers
+        assert mock_sleep.call_count == 2
+        calls = [c.args[0] for c in mock_sleep.call_args_list]
+        assert all(v == pytest.approx(3.0) for v in calls)
 
     async def test_pdf_fetch_exception_falls_to_abstract(self, config, mocker):
         """PDF GET raises an exception → fall through to abstract."""
