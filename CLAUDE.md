@@ -41,6 +41,7 @@ Fan-out uses LangGraph's `Send()` API. Fan-in uses `operator.add` on the state's
 - **`RawChunk`** — mutable dataclass: `url`, `text`, `retrieved_at`, `source_type`, `sub_query`. Empty/whitespace `url` or `text` raises `ValueError`.
 - **`VerifiedChunk`** — frozen dataclass: all `RawChunk` fields plus `hash` and `chunk_index` (agent-local; corpus assembler assigns global indices). `short_hash` returns first 8 hex chars. Produced exclusively by `SpecialistAgent.run()`.
 - **`AgentFindings`** — frozen dataclass: `agent_type`, `query`, `chunks: tuple[VerifiedChunk, ...]`, `merkle_root`, `merkle_tree`. `__post_init__` recomputes the Merkle root and raises `ValueError("merkle_root mismatch")` if it doesn't match. `chunk_count` property returns `len(chunks)`.
+- **`CertifiedReport`** — frozen dataclass: `original_query`, `report`, `forest_tree`, `chunks: tuple[VerifiedChunk, ...]`. The pipeline's final output. Inline citations in `report` use `[ML:index:hash]` format.
 
 ### `mara/agents/registry.py` — Self-registration
 
@@ -73,7 +74,7 @@ Each agent module defines its own `source_type` string constants (e.g., `LATEX`,
 | **arxiv**  | `export.arxiv.org/api/query` (Atom XML, stdlib)                       | `.tar.gz` → LaTeX → PDF in tarball → rendered PDF → abstract. **Note:** the `all:` prefix colon must not be percent-encoded — build the query string manually instead of passing `params=` to httpx.                                                                                                                      |
 | **s2**     | `api.semanticscholar.org/graph/v1/snippet/search`                     | One `snippet` object per result item (not a list); paper identified by `corpusId`. Rate-limited to ≤1 RPS via shared `asyncio.Lock` singleton. `_chunk()` passes snippets through unchanged.                                                                                                                              |
 | **pubmed** | NCBI `esearch.fcgi` (PMID list) + `esummary.fcgi` (metadata + PMC ID) | `efetch.fcgi?db=pmc` → parses `<sec>` elements (full text); falls back to `efetch.fcgi?db=pubmed` → `<AbstractText>` (abstract). Rate-limited via shared `asyncio.Lock` singleton. `api_key` omitted from params when `ncbi_api_key` is blank (NCBI returns 400 otherwise). `_chunk()` passes sections through unchanged. |
-| **core**   | CORE API v3 `/search/works`                                           | `fullText` field → download PDF → abstract                                                                                                                                                                                                                                                                                |
+| **core**   | CORE API v3 `/search/works/` (trailing slash — API redirects; use `follow_redirects=True`) | `fullText` field → download PDF → abstract                                                                                                                                                                                                                                                                                |
 | **web**    | Brave Search API                                                      | URL filter by domain tier, then Firecrawl scraping                                                                                                                                                                                                                                                                        |
 
 The web agent's URL filter has two stages: (1) domain tier regex (`BLOCK`/`DEFAULT`/`GOOD`/`PRIORITY`), (2) optional LLM ranking of survivors (disable with `web_llm_url_ranking: False`).
@@ -92,6 +93,26 @@ Standalone sub-package with no intra-package imports.
 - **`tree.py`**: `MerkleTree` dataclass; `build_merkle_tree(leaf_hashes, algorithm)` — balanced binary tree, odd levels duplicate last leaf, empty input → root `""`.
 - **`proof.py`**: `generate_proof(tree, chunk_index)` → sibling list; `verify_proof(leaf_hash, proof, root, algorithm) -> bool`.
 - **`forest.py`**: `ForestTree` wrapping a `MerkleTree` of sub-tree roots; `build_forest_tree(findings, algorithm)` enables two-level proofs.
+
+### `mara/agent/` — LangGraph pipeline
+
+**`mara/agent/state.py`**
+- **`GraphState`** — `TypedDict(total=False)`: `original_query`, `sub_queries`, `findings` (reduced with `operator.add`), `forest_tree`, `flattened_chunks`, `report`, `certified_report`. All keys optional so nodes return partial updates.
+- **`AgentRunState`** — `TypedDict`: `sub_query`, `agent_type`. Payload for each `Send()` fan-out invocation.
+
+**`mara/agent/graph.py`**
+- **`build_graph()`** — compiles the `StateGraph`. Topology: `START → query_planner → [route_to_agents] → run_agent (×N×M) → corpus_assembler → report_synthesizer → certified_output → END`.
+- **`run_research(query, config)`** — async entry point. Calls `build_graph()`, invokes with `{"original_query": query}`, passes `config` via `{"configurable": {"research_config": config}}`. Returns `CertifiedReport`. **Agent modules must be imported before this is called** (the CLI does this in `run()`).
+
+**`mara/agent/edges/routing.py`**
+- **`route_to_agents(state, config)`** — conditional edge from `query_planner`. Returns one `Send("run_agent", AgentRunState)` per sub-query × agent-type pair. Returns `"corpus_assembler"` (bypass string edge) when sub-queries or registry is empty.
+
+**`mara/agent/nodes/`**
+- **`query_planner_node`** — calls LLM with decomposition prompt; parses JSON array of `{query, domain}` objects into `SubQuery` list. Falls back to single `SubQuery(original_query)` on parse failure.
+- **`run_agent_node`** — looks up agent class from `_REGISTRY` by `agent_type`, instantiates with `research_config`, calls `agent.run(sub_query)`. Returns `{"findings": [AgentFindings]}`.
+- **`corpus_assembler_node`** — groups chunks by `agent_type`, sorts by `(sub_query, chunk_index)`, builds one `MerkleTree` root per agent, calls `build_forest_tree`, assigns globally unique `chunk_index` values via `dataclasses.replace`.
+- **`report_synthesizer_node`** — formats chunks as `[index:short_hash] text`, calls LLM to synthesise a report with inline `[ML:index:hash]` citations.
+- **`certified_output_node`** — packages `original_query`, `report`, `forest_tree`, and `flattened_chunks` into a `CertifiedReport`.
 
 ### Config (`mara/config.py`)
 

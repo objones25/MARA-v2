@@ -74,7 +74,7 @@ class COREAgent(SpecialistAgent):
         retrieved_at = _now_iso()
         headers = {"Authorization": f"Bearer {self.config.core_api_key}"}
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
             # Discover papers
             async with lock:
                 search_resp = await client.get(
