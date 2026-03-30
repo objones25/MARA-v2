@@ -17,9 +17,9 @@ from mara.agents.arxiv.fetcher import (
     chunks_from_latex,
     chunks_from_pdf,
     extract_from_tarball,
-    extract_pdf_text,
     fetch_source_tarball,
 )
+from mara.agents.utils.pdf import extract_pdf_text
 
 
 # ---------------------------------------------------------------------------

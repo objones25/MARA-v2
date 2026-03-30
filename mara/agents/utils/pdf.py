@@ -1,4 +1,4 @@
-"""PDF text extraction helper for the CORE agent."""
+"""Shared PDF text extraction utility."""
 
 from __future__ import annotations
 

@@ -18,6 +18,7 @@
    - [CORE Agent](#core-agent)
    - [HuggingFace Papers Agent](#huggingface-papers-agent)
    - [BioRxiv Agent](#biorxiv-agent)
+   - [NBER Agent](#nber-agent)
    - [Web Agent](#web-agent)
 8. [Adding a New Agent](#adding-a-new-agent)
 
@@ -54,12 +55,15 @@ mara/agents/
 │   ├── search.py
 │   └── fulltext.py
 ├── core/              # CORE agent (fulltext, PDF, abstract fallback)
-│   ├── agent.py
-│   └── fetcher.py
+│   └── agent.py
 ├── pwc/               # HuggingFace Papers agent (ML research abstracts)
 │   └── agent.py
 ├── biorxiv/           # BioRxiv/medRxiv agent (biology/medicine preprints)
 │   └── agent.py
+├── nber/              # NBER agent (economics working papers)
+│   └── agent.py
+├── utils/             # Shared utilities
+│   └── pdf.py         # extract_pdf_text() — used by arxiv and core
 └── web/               # Web agent (Brave Search + Firecrawl + filtering)
     ├── agent.py
     ├── scraper.py
@@ -125,6 +129,7 @@ class RawChunk:
 | **core**     | `FULLTEXT`, `PDF_DOWNLOADED`, `ABSTRACT_ONLY`                |
 | **pwc**      | `PAPER_ABSTRACT`                                             |
 | **biorxiv**  | `BIORXIV`, `MEDRXIV`                                         |
+| **nber**     | `working_paper`                                              |
 | **web**      | `WEB`                                                        |
 
 ---
@@ -1139,7 +1144,7 @@ ABSTRACT_ONLY = "abstract_only"
 
 **Helper Module:**
 
-- `fetcher.py` — `extract_pdf_text()` — PDF text extraction via pypdf (shared with arxiv)
+- `mara/agents/utils/pdf.py` — `extract_pdf_text()` — shared PDF text extraction via pypdf (used by both arxiv and core)
 
 ---
 
@@ -1227,6 +1232,60 @@ MEDRXIV = "medrxiv"
 - Limited to the most recent 90-day window; older papers not retrievable
 - No API-native search; relies on date-window fetch with client-side filtering
 - Poor fit for established results, engineering topics, or non-life-science research
+
+---
+
+### NBER Agent
+
+**Module:** `mara/agents/nber/`
+
+**Discovery:** NBER Working Paper Listing API (`https://www.nber.org/api/v1/working_page_listing/contentType/working_paper/_/_/search`)
+
+**Content Strategy:** Working paper metadata and abstracts from the National Bureau of Economic Research.
+
+**HTTP Client:** Uses `curl_cffi.requests.AsyncSession` instead of httpx (browser-like TLS fingerprinting to bypass NBER's Cloudflare protection).
+
+**Text Format per chunk:**
+
+```
+{date}: {title}
+
+Authors: {author1}, {author2}, ...
+
+{abstract}
+```
+
+**Rate Limiting:**
+
+- `_get_rate_limit_interval()` returns `1.0 / agent_config.rate_limit_rps` (1 RPS by default)
+
+**Chunking Override:**
+
+- Working paper records are pre-chunked; passed through unchanged
+
+**Source Types:**
+
+```python
+WORKING_PAPER = "working_paper"
+```
+
+**Configuration Parameters:**
+
+- No API key required
+- `max_results` — Max results per query (default 20)
+- `rate_limit_rps` — Requests per second (default 1.0)
+
+**Key Features:**
+
+- Authoritative source for economics working papers and preprints
+- Covers macroeconomics, labor economics, finance, public policy, and health economics
+- Papers often represent early-stage research from leading economists before formal publication
+
+**Limitations:**
+
+- Limited to economics and closely related social sciences
+- Working papers are not peer-reviewed
+- No full-text access; abstracts only
 
 ---
 

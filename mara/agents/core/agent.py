@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 import httpx
 
 from mara.agents.base import SpecialistAgent
-from mara.agents.core.fetcher import extract_pdf_text
+from mara.agents.utils.pdf import extract_pdf_text
 from mara.agents.registry import agent
 from mara.agents.types import RawChunk, SubQuery
 

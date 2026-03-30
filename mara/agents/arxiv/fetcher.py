@@ -23,6 +23,7 @@ import httpx
 
 from mara.agents.arxiv.latex_parser import clean_latex_text, extract_sections
 from mara.agents.types import RawChunk
+from mara.agents.utils.pdf import extract_pdf_text
 
 _log = logging.getLogger(__name__)
 
@@ -98,28 +99,6 @@ def extract_from_tarball(
         return [], None
 
     return tex_contents, pdf_bytes
-
-
-def extract_pdf_text(pdf_bytes: bytes) -> str | None:
-    """Extract plain text from *pdf_bytes* using pypdf.
-
-    Returns the concatenated page texts, or ``None`` when extraction
-    fails or produces no text.
-    """
-    try:
-        import pypdf  # noqa: PLC0415
-
-        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
-        pages: list[str] = []
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                pages.append(text)
-        result = "\n\n".join(pages).strip()
-        return result if result else None
-    except Exception as exc:
-        _log.debug("PDF text extraction failed: %s", exc)
-        return None
 
 
 def chunks_from_latex(

@@ -27,6 +27,7 @@ query_planner → [route_to_agents] → run_agent (×N) → corpus_assembler →
 | `core`          | CORE API v3 full text, PDF download, or abstract           |
 | `pwc`           | HuggingFace Papers API — ML research paper abstracts        |
 | `biorxiv`       | bioRxiv/medRxiv API — biology and medicine preprints       |
+| `nber`          | NBER working papers API — economics research               |
 | `web`           | Brave Search + Firecrawl scraping                          |
 
 ## Installation
@@ -95,10 +96,10 @@ Coverage is enforced at ≥ 98% (branch coverage) via `pytest.ini`.
 Every chunk carries a SHA-256 hash of its `(url, text, retrieved_at)` triple. Hashes are assembled into a binary Merkle tree per agent; agent roots become leaves of a `ForestTree`. Any chunk can be independently verified with a two-level Merkle proof without re-running the pipeline.
 
 ```python
-from mara.merkle.proof import generate_proof, verify_proof
+from mara.merkle import generate_merkle_proof, verify_merkle_proof
 
-proof = generate_proof(findings.merkle_tree, chunk_index=3)
-assert verify_proof(chunk.hash, proof, findings.merkle_root, "sha256")
+proof = generate_merkle_proof(findings.merkle_tree, chunk_index=3)
+assert verify_merkle_proof(chunk.hash, proof, findings.merkle_root, "sha256")
 ```
 
 ## Adding a new agent
