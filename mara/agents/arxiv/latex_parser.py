@@ -81,10 +81,22 @@ def _pandoc_latex_to_text(text: str) -> str | None:
     Logs at DEBUG on expected failures (missing binary, timeout);
     logs WARNING for unexpected non-zero exit codes.
     """
+    # Pandoc requires a complete LaTeX document.  Section bodies extracted
+    # from larger files are fragments — wrap them in minimal boilerplate.
+    # Also strip any stray \end{document} that may appear at the tail of
+    # the last section returned by extract_sections.
+    if r"\begin{document}" not in text:
+        body = text.replace(r"\end{document}", "")
+        pandoc_input = (
+            r"\documentclass{article}\begin{document}" + body + r"\end{document}"
+        )
+    else:
+        pandoc_input = text
+
     try:
         proc = subprocess.run(
             ["pandoc", "--from=latex", "--to=plain", "--wrap=none"],
-            input=text.encode("utf-8", errors="replace"),
+            input=pandoc_input.encode("utf-8", errors="replace"),
             capture_output=True,
             timeout=5,
         )
