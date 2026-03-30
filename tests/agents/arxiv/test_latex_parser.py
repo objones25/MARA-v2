@@ -1,8 +1,15 @@
 """Unit tests for mara.agents.arxiv.latex_parser."""
 
+import subprocess
+from unittest.mock import MagicMock, patch
+
 import pytest
 
-from mara.agents.arxiv.latex_parser import clean_latex_text, extract_sections
+from mara.agents.arxiv.latex_parser import (
+    _pandoc_latex_to_text,
+    clean_latex_text,
+    extract_sections,
+)
 
 
 class TestExtractSections:
@@ -78,9 +85,58 @@ class TestExtractSections:
         assert result == [("", "some latex")]
 
 
+class TestPandocLatexToText:
+    def test_converts_plain_text(self):
+        result = _pandoc_latex_to_text("Hello world.")
+        assert result is not None
+        assert "Hello" in result
+        assert "world" in result
+
+    def test_handles_href_with_nested_command(self):
+        # This is the exact pattern that crashes pylatexenc
+        result = _pandoc_latex_to_text(
+            r"\href{https://example.com}{\textbf{Click here}}"
+        )
+        assert result is not None
+        assert "Click here" in result
+
+    def test_handles_includegraphics(self):
+        result = _pandoc_latex_to_text(r"\includegraphics[width=0.5\linewidth]{fig1}")
+        assert result is not None  # should not crash
+
+    def test_handles_math(self):
+        result = _pandoc_latex_to_text(r"Equation $x^2 + y^2 = z^2$ holds.")
+        assert result is not None
+        assert result  # non-empty
+
+    def test_returns_none_when_pandoc_not_found(self):
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            result = _pandoc_latex_to_text("Hello world.")
+        assert result is None
+
+    def test_returns_none_on_timeout(self):
+        with patch("subprocess.run", side_effect=subprocess.TimeoutExpired("pandoc", 5)):
+            result = _pandoc_latex_to_text("Hello world.")
+        assert result is None
+
+    def test_returns_none_on_nonzero_exit(self):
+        mock_proc = MagicMock()
+        mock_proc.returncode = 1
+        mock_proc.stderr = b"pandoc error"
+        with patch("subprocess.run", return_value=mock_proc):
+            result = _pandoc_latex_to_text("Hello world.")
+        assert result is None
+
+    def test_empty_input(self):
+        result = _pandoc_latex_to_text("")
+        # pandoc on empty input returns empty string → stripped to "" → None not expected
+        # empty string is falsy but not None; caller checks `is not None`
+        assert result is not None
+        assert result == ""
+
+
 class TestCleanLatexText:
     def test_plain_text_unchanged(self):
-        # pylatexenc should return plain text largely unchanged
         result = clean_latex_text("Hello world.")
         assert "Hello" in result
         assert "world" in result
@@ -89,35 +145,38 @@ class TestCleanLatexText:
         assert clean_latex_text("") == ""
 
     def test_removes_commands(self):
-        # A simple command like \textbf{word} → "word" (or similar)
         result = clean_latex_text(r"\textbf{important}")
         assert "important" in result
 
-    def test_fallback_on_pylatexenc_failure(self, monkeypatch):
-        import mara.agents.arxiv.latex_parser as parser
-
-        # Patch LatexNodes2Text to raise on import/instantiation
-        original_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else None
-
-        def fail_import(name, *args, **kwargs):
-            if name == "pylatexenc.latex2text":
-                raise ImportError("forced failure")
-            import builtins
-
-            return builtins.__import__(name, *args, **kwargs)
-
-        monkeypatch.setattr("builtins.__import__", fail_import)
-        # Fallback regex should still strip comments and commands
-        result = clean_latex_text(r"% comment" + "\n" + r"\textbf{word}")
-        assert "word" in result
-        assert "comment" not in result
+    def test_href_with_nested_command(self):
+        # This crashed pylatexenc; pandoc should handle it
+        result = clean_latex_text(r"\href{https://example.com}{\textbf{Click here}}")
+        assert "Click here" in result
 
     def test_strips_latex_comments(self):
-        # Even via pylatexenc, comments should be removed
         result = clean_latex_text("Hello % this is a comment\nworld.")
         assert "comment" not in result
 
     def test_math_section_handled(self):
-        # Math should not crash, even if garbled
         result = clean_latex_text(r"See equation $x^2 + y^2 = z^2$ for proof.")
         assert result  # non-empty
+
+    def test_pylatexenc_fallback_when_pandoc_unavailable(self):
+        # When pandoc is not found, pylatexenc handles simple input
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            result = clean_latex_text(r"\textbf{important}")
+        assert "important" in result
+
+    def test_regex_fallback_when_both_pandoc_and_pylatexenc_fail(self, monkeypatch):
+        # Make pandoc unavailable AND pylatexenc fail → regex fallback
+        def fail_import(name, *args, **kwargs):
+            if name == "pylatexenc.latex2text":
+                raise ImportError("forced failure")
+            import builtins
+            return builtins.__import__(name, *args, **kwargs)
+
+        monkeypatch.setattr("builtins.__import__", fail_import)
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            result = clean_latex_text(r"% comment" + "\n" + r"\textbf{word}")
+        assert "word" in result
+        assert "comment" not in result

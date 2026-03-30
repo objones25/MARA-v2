@@ -4,7 +4,7 @@ MARA runs a parallel research pipeline across academic and web sources, synthesi
 
 ## How it works
 
-```
+```text
 query_planner → [route_to_agents] → run_agent (×N) → corpus_assembler → chunk_selector → report_synthesizer → certified_output
 ```
 
@@ -18,27 +18,37 @@ query_planner → [route_to_agents] → run_agent (×N) → corpus_assembler →
 
 ## Agents
 
-| Agent           | Sources                                                    |
-| --------------- | ---------------------------------------------------------- |
-| `arxiv`         | arXiv export API — LaTeX source, rendered PDF, or abstract |
-| `s2`            | Semantic Scholar snippet search                            |
+| Agent            | Sources                                                       |
+| ---------------- | ------------------------------------------------------------- |
+| `arxiv`          | arXiv export API — LaTeX source, rendered PDF, or abstract    |
+| `s2`             | Semantic Scholar snippet search                               |
 | `citation_graph` | Semantic Scholar citation index — citing papers via corpus ID |
-| `pubmed`        | NCBI PubMed/PMC full text and abstracts                    |
-| `core`          | CORE API v3 full text, PDF download, or abstract           |
-| `pwc`           | HuggingFace Papers API — ML research paper abstracts        |
-| `biorxiv`       | bioRxiv/medRxiv API — biology and medicine preprints       |
-| `nber`          | NBER working papers API — economics research               |
-| `web`           | Brave Search + Firecrawl scraping                          |
+| `pubmed`         | NCBI PubMed/PMC full text and abstracts                       |
+| `core`           | CORE API v3 full text, PDF download, or abstract              |
+| `pwc`            | HuggingFace Papers API — ML research paper abstracts          |
+| `biorxiv`        | bioRxiv/medRxiv API — biology and medicine preprints          |
+| `nber`           | NBER working papers API — economics research                  |
+| `web`            | Brave Search + Firecrawl scraping                             |
 
 ## Installation
 
-Requires Python ≥ 3.11 and [uv](https://docs.astral.sh/uv/).
+Requires Python ≥ 3.11, [uv](https://docs.astral.sh/uv/), and `pandoc`.
 
 ```bash
+# Install pandoc (system dependency)
+# macOS
+brew install pandoc
+
+# Linux (Debian/Ubuntu)
+apt install pandoc
+
+# Then clone and install MARA
 git clone https://github.com/objones25/MARA-v2.git
 cd MARA-v2
 uv sync
 ```
+
+`pandoc` is required for the arxiv agent's full LaTeX parsing capability. Without it, the pipeline falls back to `pylatexenc`, but complex LaTeX patterns may be lost. **TODO:** Create a Docker container with pandoc pre-installed for guaranteed compatibility.
 
 ## Configuration
 

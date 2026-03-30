@@ -120,17 +120,17 @@ class RawChunk:
 
 **Source Type Constants by Agent:**
 
-| Agent        | Source Types                                                 |
-| ------------ | ------------------------------------------------------------ |
-| **arxiv**    | `LATEX`, `PDF_FROM_TARBALL`, `PDF_RENDERED`, `ABSTRACT_ONLY` |
-| **s2**       | `SNIPPET`                                                    |
-| **citation_graph** | `CITATION`                                             |
-| **pubmed**   | `PMC_XML`, `ABSTRACT_ONLY`                                   |
-| **core**     | `FULLTEXT`, `PDF_DOWNLOADED`, `ABSTRACT_ONLY`                |
-| **pwc**      | `PAPER_ABSTRACT`                                             |
-| **biorxiv**  | `BIORXIV`, `MEDRXIV`                                         |
-| **nber**     | `working_paper`                                              |
-| **web**      | `WEB`                                                        |
+| Agent              | Source Types                                                 |
+| ------------------ | ------------------------------------------------------------ |
+| **arxiv**          | `LATEX`, `PDF_FROM_TARBALL`, `PDF_RENDERED`, `ABSTRACT_ONLY` |
+| **s2**             | `SNIPPET`                                                    |
+| **citation_graph** | `CITATION`                                                   |
+| **pubmed**         | `PMC_XML`, `ABSTRACT_ONLY`                                   |
+| **core**           | `FULLTEXT`, `PDF_DOWNLOADED`, `ABSTRACT_ONLY`                |
+| **pwc**            | `PAPER_ABSTRACT`                                             |
+| **biorxiv**        | `BIORXIV`, `MEDRXIV`                                         |
+| **nber**           | `working_paper`                                              |
+| **web**            | `WEB`                                                        |
 
 ---
 
@@ -951,11 +951,30 @@ PDF_RENDERED = "pdf_rendered"
 ABSTRACT_ONLY = "abstract_only"
 ```
 
+**LaTeX-to-Text Conversion Pipeline:**
+
+The `latex_parser.py` module uses a three-level fallback strategy for LaTeX-to-plain-text conversion:
+
+1. **pandoc** (primary) — subprocess call to `pandoc --from=latex --to=plain --wrap=none`; handles `\href`, math, custom environments, `\includegraphics`, etc.
+2. **pylatexenc** — pure-Python fallback when pandoc is not installed
+3. **regex strip** — last resort
+
+Without pandoc installed, the pipeline falls back gracefully but may lose quality on complex LaTeX (e.g., `\href{url}{\cmd{...}}` patterns can cause pylatexenc to raise an exception).
+
+**System Dependency:**
+
+- `pandoc` must be installed as a system dependency for best-quality LaTeX parsing in the arxiv agent
+  - macOS: `brew install pandoc`
+  - Linux (Debian/Ubuntu): `apt install pandoc`
+- Without it, the pipeline still works but uses pylatexenc as the primary fallback
+
+**TODO — Docker Containerization:** Create a Docker container with pandoc pre-installed to guarantee LaTeX parsing availability across all deployments.
+
 **Key Features:**
 
 - Colon in `all:<term>` queries is NOT percent-encoded (manual query string construction)
 - Graceful fallback through all four levels
-- Comprehensive LaTeX to plain-text conversion via `pylatexenc` with regex fallback
+- Multi-level LaTeX-to-text conversion with graceful degradation
 
 ---
 
@@ -1032,7 +1051,7 @@ CITATION = "citation"
 
 **URL Format:**
 
-```
+```text
 https://www.semanticscholar.org/paper/{corpusId}
 ```
 
@@ -1247,7 +1266,7 @@ MEDRXIV = "medrxiv"
 
 **Text Format per chunk:**
 
-```
+```text
 {date}: {title}
 
 Authors: {author1}, {author2}, ...
@@ -1667,4 +1686,4 @@ uv run pytest --cov=mara.agents --cov-branch --cov-report=term-missing
 
 ---
 
-*End of documentation for `mara/agents/`.*
+_End of documentation for `mara/agents/`._

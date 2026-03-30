@@ -2,10 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## TODO
+
+- **Docker Containerization:** Create a Docker image with pandoc, Python 3.11+, and uv pre-installed to guarantee consistent LaTeX parsing availability across all deployments.
+
 ## Commands
 
 ```bash
-# Install dependencies
+# Install system dependency (pandoc — required for arxiv agent LaTeX parsing)
+brew install pandoc          # macOS
+apt install pandoc           # Linux (Debian/Ubuntu)
+
+# Install Python dependencies
 uv sync
 
 # Run all tests
@@ -32,7 +40,7 @@ MARA is a multi-agent research pipeline that produces cryptographically verifiab
 
 ### Data Flow
 
-```
+```text
 query_planner → [route_to_agents] → run_agent (×N) → corpus_assembler → chunk_selector → report_synthesizer → certified_output
 ```
 
@@ -54,7 +62,7 @@ Fan-out uses LangGraph's `Send()` API. Fan-in uses `operator.add` on the state's
 - **`AgentRegistration`** — dataclass wrapping `cls`, `description`, `capabilities: list[str]`, `limitations: list[str]`, `example_queries: list[str]`, `config: AgentConfig`. All list fields default to `[]`. The `config` field holds the agent's default rate limits and per-agent settings.
 - `@agent("name", description=..., capabilities=..., limitations=..., example_queries=..., config=...)` — class decorator that inserts an `AgentRegistration` into `_REGISTRY`. The `config` parameter (optional) sets the agent's default `AgentConfig`. Raises `ValueError` if the name is already taken.
 - `get_agents(config)` — instantiates every registered class (`reg.cls`) with both `config` (the `ResearchConfig`) and the agent's `AgentConfig` (from `agent_config_overrides` or `reg.config`), returning the list.
-- `get_registry_summary()` — returns a formatted multi-line string of the agent roster, injected into the query planner system prompt so the LLM can route sub-queries intelligently. Emits `  Max sub-queries: N` per agent when `AgentConfig.max_sub_queries > 0`.
+- `get_registry_summary()` — returns a formatted multi-line string of the agent roster, injected into the query planner system prompt so the LLM can route sub-queries intelligently. Emits `Max sub-queries: N` per agent when `AgentConfig.max_sub_queries > 0`.
 
 Adding a new agent requires writing the class, applying `@agent("name", ..., config=AgentConfig(...))`, and passing the agent to the constructor with both `ResearchConfig` and `AgentConfig` arguments — the pipeline wires them automatically via `get_agents()`.
 

@@ -3,12 +3,22 @@
 Provides section extraction and text cleaning.  Both functions are
 designed to be fault-tolerant: any parse error falls back to returning
 the full input text rather than raising.
+
+Conversion pipeline for ``clean_latex_text``:
+1. **pandoc** — subprocess call; handles any valid LaTeX including
+   ``\\href``, ``\\includegraphics``, custom environments, and math.
+   Falls back when pandoc is not installed or times out.
+2. **pylatexenc** — pure-Python; covers simpler documents but crashes
+   on ``\\href{url}{\\cmd{...}}`` due to a mismatch between its walker
+   and renderer macro-arg counts.
+3. **regex** — last-resort strip of comments and common commands.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import subprocess
 
 _log = logging.getLogger(__name__)
 
@@ -60,15 +70,59 @@ def extract_sections(latex_text: str) -> list[tuple[str, str]]:
         return [("", latex_text)]
 
 
+def _pandoc_latex_to_text(text: str) -> str | None:
+    """Convert *text* via ``pandoc --from=latex --to=plain``.
+
+    Returns the plain-text string on success, or ``None`` when:
+    - pandoc is not installed (``FileNotFoundError``),
+    - the conversion times out (>5 s), or
+    - pandoc exits with a non-zero return code.
+
+    Logs at DEBUG on expected failures (missing binary, timeout);
+    logs WARNING for unexpected non-zero exit codes.
+    """
+    try:
+        proc = subprocess.run(
+            ["pandoc", "--from=latex", "--to=plain", "--wrap=none"],
+            input=text.encode("utf-8", errors="replace"),
+            capture_output=True,
+            timeout=5,
+        )
+    except FileNotFoundError:
+        _log.debug("pandoc not found; falling back to pylatexenc")
+        return None
+    except subprocess.TimeoutExpired:
+        _log.debug("pandoc timed out; falling back to pylatexenc")
+        return None
+
+    if proc.returncode != 0:
+        _log.warning(
+            "pandoc exited %d: %s",
+            proc.returncode,
+            proc.stderr.decode("utf-8", errors="replace")[:200],
+        )
+        return None
+
+    return proc.stdout.decode("utf-8", errors="replace").strip()
+
+
 def clean_latex_text(text: str) -> str:
     """Convert LaTeX markup to plain text.
 
-    Uses ``pylatexenc.latex2text.LatexNodes2Text`` for the primary
-    conversion.  On any failure, falls back to a simple regex-based
-    stripping of comments and common commands.
+    Tries three strategies in order, returning the first success:
+
+    1. **pandoc** subprocess (best quality; handles ``\\href``, math,
+       custom environments).
+    2. **pylatexenc** ``LatexNodes2Text`` (pure-Python; fails on some
+       ``\\href{url}{\\cmd{...}}`` patterns).
+    3. Regex strip of comments and common commands (last resort).
     """
     if not text:
         return ""
+
+    result = _pandoc_latex_to_text(text)
+    if result is not None:
+        return result
 
     try:
         from pylatexenc.latex2text import LatexNodes2Text  # noqa: PLC0415
