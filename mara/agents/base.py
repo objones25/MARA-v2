@@ -147,7 +147,10 @@ class SpecialistAgent(ABC):
         """Call ``_search()`` with caching, rate limiting, and exponential back-off retry.
 
         Cache check runs first; a hit skips rate limiting and the network call.
-        Cache population happens on success only.
+        Cache population happens on success only.  The rate-limit slot is
+        acquired before *each* attempt (not just the first) so retries respect
+        the inter-call delay even when the backoff sleep is shorter than the
+        configured interval.
 
         Error classification:
 
@@ -161,11 +164,12 @@ class SpecialistAgent(ABC):
         back-off applies.
 
         ``agent_config.retry_backoff_base`` overrides ``config.retry_backoff_base``
+        when set (> 0).  ``agent_config.max_retries`` overrides ``config.max_retries``
         when set (> 0).  ``agent_config.max_concurrent`` (> 0) gates the entire
         retry loop behind a per-agent-type semaphore so only *N* ``_search()``
         calls run simultaneously.
 
-        After ``config.max_retries`` failed attempts the final exception
+        After the effective ``max_retries`` failed attempts the final exception
         propagates to the caller.
         """
         agent_type = self._agent_type()
@@ -194,10 +198,15 @@ class SpecialistAgent(ABC):
         )
 
         async with ctx:
-            await self._acquire_rate_limit_slot()
             last_exc: Exception | None = None
-            total = self.config.max_retries + 1
+            max_retries = (
+                self.agent_config.max_retries
+                if self.agent_config.max_retries > 0
+                else self.config.max_retries
+            )
+            total = max_retries + 1
             for attempt in range(total):
+                await self._acquire_rate_limit_slot()
                 retry_after_override: float | None = None
                 _log.debug(
                     "attempt %d/%d",
@@ -252,7 +261,7 @@ class SpecialistAgent(ABC):
                         extra={"agent": agent_type},
                     )
                     last_exc = exc
-                if attempt < self.config.max_retries:
+                if attempt < max_retries:
                     backoff = (
                         retry_after_override
                         if retry_after_override is not None

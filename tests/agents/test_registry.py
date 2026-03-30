@@ -246,3 +246,15 @@ class TestGetRegistrySummary:
         summary = get_registry_summary()
         # The "Max sub-queries" line should not appear for this agent
         assert "Max sub-queries:" not in summary.split("[uncapped_agent]")[1].split("\n\n")[0]
+
+
+# ---------------------------------------------------------------------------
+# AgentConfig defaults
+# ---------------------------------------------------------------------------
+
+
+class TestAgentConfigDefaults:
+    def test_max_retries_defaults_to_zero(self):
+        from mara.agents.registry import AgentConfig
+
+        assert AgentConfig().max_retries == 0

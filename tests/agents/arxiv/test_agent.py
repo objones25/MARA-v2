@@ -378,7 +378,7 @@ class TestArxivAgentSearch:
             await agent._search(SubQuery(query="test"))
 
     async def test_rate_limit_sleep_between_papers(self, config, mocker):
-        """asyncio.sleep is called once between the two papers (discovery lock removed)."""
+        """asyncio.sleep is called once before each paper fetch (always, including the first)."""
         mock_sleep = mocker.patch("asyncio.sleep", new_callable=AsyncMock)
 
         tex = r"\section{A}" + "\nContent."
@@ -403,9 +403,9 @@ class TestArxivAgentSearch:
         agent = ArxivAgent(config, AgentConfig())
         await agent._search(SubQuery(query="test"))
 
-        # 1 sleep between the two papers (base class handles discovery-level rate limiting)
-        assert mock_sleep.call_count == 1
-        assert mock_sleep.call_args_list[0].args[0] == pytest.approx(3.0)
+        # 2 sleeps — one before each paper fetch (including the first)
+        assert mock_sleep.call_count == 2
+        assert all(c.args[0] == pytest.approx(3.0) for c in mock_sleep.call_args_list)
 
     async def test_pdf_fetch_exception_falls_to_abstract(self, config, mocker):
         """PDF GET raises an exception → fall through to abstract."""
@@ -598,3 +598,8 @@ class TestArxivAgentSearch:
         from mara.agents.registry import _REGISTRY
 
         assert _REGISTRY["arxiv"].config.max_sub_queries == 1
+
+    def test_arxiv_registered_with_max_retries_five(self):
+        from mara.agents.registry import _REGISTRY
+
+        assert _REGISTRY["arxiv"].config.max_retries == 5

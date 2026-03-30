@@ -32,6 +32,11 @@ async def run_agent_node(state: AgentRunState, config: RunnableConfig) -> dict:
     reg = _REGISTRY[agent_type]
     overrides: dict = getattr(research_config, "agent_config_overrides", {})
     agent_config = overrides.get(agent_type, reg.config)
+    _log.debug(
+        "run_agent: agent=%r agent_config=%r",
+        agent_type,
+        agent_config,
+    )
     agent = reg.cls(research_config, agent_config)
     try:
         findings = await agent.run(sub_query)

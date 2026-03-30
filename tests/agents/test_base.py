@@ -454,6 +454,27 @@ class TestFetchWithRetry:
                 await instance._fetch_with_retry(SubQuery(query="q"))
         assert instance._search.await_count == config.max_retries + 1
 
+    async def test_agent_config_max_retries_overrides_global(self, config):
+        """agent_config.max_retries > 0 overrides config.max_retries."""
+        agent_cfg = AgentConfig(max_retries=5)
+        instance = _make_concrete("fwr_maxr_override")(config, agent_cfg)
+        instance._search = AsyncMock(side_effect=_http_error(500))
+        with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(httpx.HTTPStatusError):
+                await instance._fetch_with_retry(SubQuery(query="q"))
+        # 5 retries + 1 initial = 6 attempts (config.max_retries is 3 → 4 without override)
+        assert instance._search.await_count == 6
+
+    async def test_agent_config_max_retries_zero_falls_back_to_global(self, config):
+        """agent_config.max_retries == 0 falls back to config.max_retries."""
+        agent_cfg = AgentConfig(max_retries=0)
+        instance = _make_concrete("fwr_maxr_fallback")(config, agent_cfg)
+        instance._search = AsyncMock(side_effect=_http_error(500))
+        with patch("mara.agents.base.asyncio.sleep", new_callable=AsyncMock):
+            with pytest.raises(httpx.HTTPStatusError):
+                await instance._fetch_with_retry(SubQuery(query="q"))
+        assert instance._search.await_count == config.max_retries + 1
+
     async def test_5xx_retries_until_max_retries_then_raises(self, config):
         instance = _make_concrete("fwr_500")(config, AgentConfig())
         instance._search = AsyncMock(side_effect=_http_error(500))

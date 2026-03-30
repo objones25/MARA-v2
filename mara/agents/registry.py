@@ -27,6 +27,7 @@ class AgentConfig:
     rate_limit_rps: float = 0.0  # 0 = no rate limiting (use class-level default)
     max_concurrent: int = 0  # 0 = unlimited concurrent _search() calls
     retry_backoff_base: float = 0.0  # 0 = use ResearchConfig.retry_backoff_base
+    max_retries: int = 0  # 0 = use ResearchConfig.max_retries
     max_sub_queries: int = 0  # 0 = unlimited; >0 caps how many sub-queries the planner may route here
 
 

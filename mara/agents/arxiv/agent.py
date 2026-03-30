@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import urllib.parse
 import xml.etree.ElementTree as ET
 
@@ -126,7 +127,7 @@ def _parse_feed(xml_text: str) -> list[dict]:
         "reinforcement learning from human feedback theory",
         "topological phases of matter",
     ],
-    config=AgentConfig(max_concurrent=1, retry_backoff_base=5.0, max_sub_queries=1),
+    config=AgentConfig(max_concurrent=1, retry_backoff_base=5.0, max_sub_queries=1, max_retries=5),
 )
 class ArxivAgent(SpecialistAgent):
     """Retrieves research papers from ArXiv.
@@ -156,6 +157,7 @@ class ArxivAgent(SpecialistAgent):
             httpx.HTTPError: if the ArXiv API discovery call fails.
         """
         headers = {"User-Agent": "MARA-research-agent/0.1 (https://github.com/mara; mailto:contact@mara.local)"}
+        _log.debug("arxiv _search start t=%.3f", time.monotonic(), extra={"agent": "arxiv"})
         async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
             # Build the query string manually so the colon in "all:<term>"
             # is NOT percent-encoded (ArXiv rejects %3A).
@@ -174,9 +176,8 @@ class ArxivAgent(SpecialistAgent):
             )
 
             chunks: list[RawChunk] = []
-            for i, entry in enumerate(entries):
-                if i > 0:
-                    await asyncio.sleep(_RATE_LIMIT_DELAY)
+            for entry in entries:
+                await asyncio.sleep(_RATE_LIMIT_DELAY)
                 paper_chunks = await self._fetch_paper(client, entry, sub_query.query)
                 chunks.extend(paper_chunks)
 
@@ -200,6 +201,7 @@ class ArxivAgent(SpecialistAgent):
         retrieved_at = _now_iso()
 
         # Step 1 — source tarball
+        _log.debug("fetch_paper %s t=%.3f", versioned_id, time.monotonic(), extra={"agent": "arxiv"})
         tarball = await fetch_source_tarball(client, versioned_id)
         if tarball is not None:
             tex_contents, tarball_pdf = extract_from_tarball(tarball)
@@ -226,6 +228,7 @@ class ArxivAgent(SpecialistAgent):
 
         # Step 3 — rendered (versioned) PDF URL
         try:
+            _log.debug("fetch pdf %s t=%.3f", pdf_url, time.monotonic(), extra={"agent": "arxiv"})
             pdf_resp = await client.get(pdf_url, follow_redirects=True)
             if pdf_resp.status_code == 200:
                 pdf_chunks = chunks_from_pdf(
