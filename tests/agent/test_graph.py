@@ -28,6 +28,23 @@ def test_build_graph_returns_compiled_graph() -> None:
     assert "certified_output" in graph.nodes
 
 
+def test_build_graph_passes_checkpointer_to_compile() -> None:
+    mock_checkpointer = MagicMock()
+    with patch("mara.agent.graph.StateGraph") as mock_sg:
+        mock_builder = MagicMock()
+        mock_sg.return_value = mock_builder
+        build_graph(checkpointer=mock_checkpointer)
+        mock_builder.compile.assert_called_once_with(checkpointer=mock_checkpointer)
+
+
+def test_build_graph_no_checkpointer_passes_none() -> None:
+    with patch("mara.agent.graph.StateGraph") as mock_sg:
+        mock_builder = MagicMock()
+        mock_sg.return_value = mock_builder
+        build_graph()
+        mock_builder.compile.assert_called_once_with(checkpointer=None)
+
+
 # ---------------------------------------------------------------------------
 # run_research — end-to-end with all external calls mocked
 # ---------------------------------------------------------------------------
@@ -77,6 +94,39 @@ async def test_run_research_returns_certified_report(research_config) -> None:
     assert result.report == "The synthesised report."
     assert len(result.chunks) > 0
     assert result.forest_tree.root != ""
+
+
+async def test_run_research_warns_on_zero_chunk_agent(research_config, capsys) -> None:
+    """Agents that return 0 chunks should trigger a stderr warning."""
+    planner_response = json.dumps([{"query": "sub-question", "domain": ""}])
+
+    def _zero_chunk_agent_cls(agent_type: str):
+        class ZeroChunkAgent:
+            def __init__(self, config, agent_config):
+                pass
+
+            async def run(self, sub_query: SubQuery):
+                return make_findings(agent_type=agent_type, query=sub_query.query, chunks=())
+
+        return ZeroChunkAgent
+
+    fake_registry = {"empty_agent": AgentRegistration(cls=_zero_chunk_agent_cls("empty_agent"))}
+
+    with (
+        patch(
+            "mara.agent.nodes.query_planner.make_llm",
+            return_value=_llm_mock(planner_response),
+        ),
+        patch(
+            "mara.agent.nodes.report_synthesizer.make_llm",
+            return_value=_llm_mock("No sources."),
+        ),
+        patch("mara.agent.nodes.run_agent._REGISTRY", fake_registry),
+        patch("mara.agent.edges.routing._REGISTRY", fake_registry),
+    ):
+        await run_research("what is quantum computing?", research_config)
+
+    assert "empty_agent" in capsys.readouterr().err
 
 
 async def test_run_research_empty_registry(research_config) -> None:

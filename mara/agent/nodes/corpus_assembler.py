@@ -65,10 +65,18 @@ def corpus_assembler_node(state: GraphState, config: RunnableConfig) -> dict:
         dataclasses.replace(c, chunk_index=i) for i, c in enumerate(all_chunks)
     ]
 
+    retrieval_stats = {
+        agent_type: len(chunks) for agent_type, chunks in agent_chunks.items()
+    }
+
     _log.debug(
         "corpus_assembler: %d agent(s), %d total chunk(s), forest_root=%s",
         len(agent_data),
         len(flattened),
         forest_tree.root[:8] or "(empty)",
     )
-    return {"forest_tree": forest_tree, "flattened_chunks": flattened}
+    return {
+        "forest_tree": forest_tree,
+        "flattened_chunks": flattened,
+        "retrieval_stats": retrieval_stats,
+    }

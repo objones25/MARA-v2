@@ -81,7 +81,7 @@ async def test_report_synthesizer_calls_make_llm_with_config(runnable_config) ->
         hf_token=rc.hf_token,
         max_new_tokens=rc.llm_max_tokens,
         provider=rc.llm_provider,
-        temperature=rc.llm_temperature,
+        temperature=rc.synthesizer_temperature,
         top_p=rc.llm_top_p,
         top_k=rc.llm_top_k,
     )

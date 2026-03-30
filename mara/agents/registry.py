@@ -22,7 +22,7 @@ class AgentConfig:
     instantiation time.
     """
 
-    api_key: str = ""
+    api_key: str = field(default="", repr=False)
     max_results: int = 20
     rate_limit_rps: float = 0.0  # 0 = no rate limiting (use class-level default)
     max_concurrent: int = 0  # 0 = unlimited concurrent _search() calls

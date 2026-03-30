@@ -78,6 +78,12 @@ class TestLLMDefaults:
     def test_llm_temperature_default(self):
         assert _valid().llm_temperature == pytest.approx(0.7)
 
+    def test_planner_temperature_default(self):
+        assert _valid().planner_temperature == pytest.approx(0.7)
+
+    def test_synthesizer_temperature_default(self):
+        assert _valid().synthesizer_temperature == pytest.approx(0.3)
+
     def test_llm_top_p_default(self):
         assert _valid().llm_top_p == pytest.approx(0.8)
 

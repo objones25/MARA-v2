@@ -23,6 +23,7 @@ dependencies = [
     "psycopg[binary]",
     "rank-bm25",
     "curl-cffi>=0.14.0",
+    "langgraph-checkpoint-sqlite",
 ]
 
 [dependency-groups]

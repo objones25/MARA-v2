@@ -63,7 +63,7 @@ async def query_planner_node(state: GraphState, config: RunnableConfig) -> dict:
         hf_token=research_config.hf_token,
         max_new_tokens=research_config.llm_max_tokens,
         provider=research_config.llm_provider,
-        temperature=research_config.llm_temperature,
+        temperature=research_config.planner_temperature,
         top_p=research_config.llm_top_p,
         top_k=research_config.llm_top_k,
     )

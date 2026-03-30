@@ -135,6 +135,49 @@ def test_corpus_assembler_all_agents_zero_chunks(runnable_config) -> None:
     assert result["forest_tree"].root == ""
 
 
+# ---------------------------------------------------------------------------
+# retrieval_stats
+# ---------------------------------------------------------------------------
+
+
+def test_corpus_assembler_retrieval_stats_single_agent(runnable_config) -> None:
+    c0 = make_chunk(chunk_index=0, sub_query="q")
+    c1 = make_chunk(url="https://b.com", text="b", chunk_index=1, sub_query="q")
+    findings = make_findings(agent_type="arxiv", query="q", chunks=(c0, c1))
+
+    result = corpus_assembler_node({"findings": [findings]}, runnable_config)
+
+    assert result["retrieval_stats"] == {"arxiv": 2}
+
+
+def test_corpus_assembler_retrieval_stats_multiple_agents(runnable_config) -> None:
+    ca = make_chunk(url="https://a.com", text="a", sub_query="q", chunk_index=0)
+    cw = make_chunk(url="https://w.com", text="w", sub_query="q", chunk_index=0)
+    f_arxiv = make_findings(agent_type="arxiv", query="q", chunks=(ca,))
+    f_web = make_findings(agent_type="web", query="q", chunks=(cw,))
+
+    result = corpus_assembler_node({"findings": [f_arxiv, f_web]}, runnable_config)
+
+    assert result["retrieval_stats"] == {"arxiv": 1, "web": 1}
+
+
+def test_corpus_assembler_retrieval_stats_zero_chunk_agent(runnable_config) -> None:
+    c = make_chunk(url="https://a.com", text="a", sub_query="q", chunk_index=0)
+    f_arxiv = make_findings(agent_type="arxiv", query="q", chunks=(c,))
+    f_pubmed = make_findings(agent_type="pubmed", query="q", chunks=())
+
+    result = corpus_assembler_node({"findings": [f_arxiv, f_pubmed]}, runnable_config)
+
+    assert result["retrieval_stats"]["arxiv"] == 1
+    assert result["retrieval_stats"]["pubmed"] == 0
+
+
+def test_corpus_assembler_retrieval_stats_empty_findings(runnable_config) -> None:
+    result = corpus_assembler_node({"original_query": "q", "findings": []}, runnable_config)
+
+    assert result["retrieval_stats"] == {}
+
+
 def test_corpus_assembler_chunk_sort_order(runnable_config) -> None:
     """Chunks within an agent are sorted by (sub_query, chunk_index)."""
     c_q2_0 = make_chunk(url="https://a.com", text="q2 first", sub_query="q2", chunk_index=0)

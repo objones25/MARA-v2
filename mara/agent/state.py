@@ -26,6 +26,7 @@ class GraphState(TypedDict, total=False):
     forest_tree: ForestTree
     flattened_chunks: list[VerifiedChunk]
     selected_chunks: list[VerifiedChunk]
+    retrieval_stats: dict[str, int]
     report: str
     certified_report: CertifiedReport
 

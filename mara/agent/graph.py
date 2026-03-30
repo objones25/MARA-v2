@@ -8,6 +8,9 @@ calling ``run_research()`` so their ``@agent()`` decorators populate
 
 from __future__ import annotations
 
+import logging
+import sys
+
 from langgraph.graph import END, START, StateGraph
 
 from mara.agent.edges.routing import route_to_agents
@@ -21,8 +24,10 @@ from mara.agent.state import GraphState
 from mara.agents.types import CertifiedReport
 from mara.config import ResearchConfig
 
+_log = logging.getLogger(__name__)
 
-def build_graph() -> StateGraph:
+
+def build_graph(checkpointer=None) -> StateGraph:
     """Compile and return the MARA research pipeline graph.
 
     Graph topology::
@@ -33,6 +38,11 @@ def build_graph() -> StateGraph:
 
     Fan-out uses LangGraph ``Send()``; fan-in uses the ``operator.add``
     reducer on ``GraphState.findings``.
+
+    Args:
+        checkpointer: Optional LangGraph checkpointer (e.g. ``SqliteSaver``).
+            When provided, the graph can resume interrupted runs via
+            ``thread_id`` in the run config.
     """
     builder = StateGraph(GraphState)
 
@@ -53,23 +63,50 @@ def build_graph() -> StateGraph:
     builder.add_edge("report_synthesizer", "certified_output")
     builder.add_edge("certified_output", END)
 
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
 
 
-async def run_research(query: str, config: ResearchConfig) -> CertifiedReport:
+async def run_research(
+    query: str, config: ResearchConfig, thread_id: str | None = None
+) -> CertifiedReport:
     """Run the full MARA pipeline for *query* and return a ``CertifiedReport``.
 
     Args:
-        query:  The user's research question.
-        config: Fully-populated ``ResearchConfig`` (all API keys required).
+        query:     The user's research question.
+        config:    Fully-populated ``ResearchConfig`` (all API keys required).
+        thread_id: Optional thread identifier for LangGraph checkpointing.
+            When provided, pipeline state is persisted to
+            ``.mara_checkpoints.db`` and the run can be resumed on failure.
+            When ``None`` (default), no checkpointer is used.
 
     Returns:
         A ``CertifiedReport`` containing the narrative report and its full
         Merkle provenance chain.
     """
-    graph = build_graph()
-    result = await graph.ainvoke(
-        {"original_query": query},
-        config={"configurable": {"research_config": config}},
-    )
+    if thread_id is not None:
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        async with AsyncSqliteSaver.from_conn_string(".mara_checkpoints.db") as checkpointer:
+            graph = build_graph(checkpointer=checkpointer)
+            result = await _invoke(graph, query, config, thread_id)
+    else:
+        graph = build_graph()
+        result = await _invoke(graph, query, config, thread_id=None)
+
+    stats: dict[str, int] = result.get("retrieval_stats", {})
+    for agent_type, count in sorted(stats.items()):
+        if count == 0:
+            print(f"WARNING: {agent_type} returned 0 chunks", file=sys.stderr)
+            _log.warning("agent %s returned 0 chunks", agent_type)
     return result["certified_report"]
+
+
+async def _invoke(graph, query: str, config: ResearchConfig, thread_id: str | None) -> dict:
+    """Invoke the compiled graph with the given query and config."""
+    configurable: dict = {"research_config": config}
+    if thread_id is not None:
+        configurable["thread_id"] = thread_id
+    return await graph.ainvoke(
+        {"original_query": query},
+        config={"configurable": configurable},
+    )

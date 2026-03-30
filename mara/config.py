@@ -31,6 +31,8 @@ class ResearchConfig(BaseSettings):
     model_overrides: dict[str, str] = Field(default_factory=dict)
     llm_provider: str = "featherless-ai"
     llm_temperature: float = 0.7
+    planner_temperature: float = 0.7
+    synthesizer_temperature: float = 0.3
     llm_top_p: float = 0.8
     llm_top_k: int = 20
     llm_min_p: float = 0.0
