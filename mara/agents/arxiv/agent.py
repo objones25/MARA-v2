@@ -1,7 +1,7 @@
 """ArXiv specialist agent.
 
-Discovers papers via the ArXiv Atom API and retrieves content via the
-four-level fallback chain (LaTeX → PDF in tarball → rendered PDF → abstract).
+Discovers papers via the ArXiv Atom API, fetches the source tarball,
+compiles main.tex with pdflatex, and extracts text from the resulting PDF.
 """
 
 from __future__ import annotations
@@ -15,15 +15,10 @@ import xml.etree.ElementTree as ET
 import httpx
 
 from mara.agents.arxiv.fetcher import (
-    ABSTRACT_ONLY,  # noqa: F401 – re-exported for tests / type-checking
-    LATEX,
-    PDF_FROM_TARBALL,  # noqa: F401
-    PDF_RENDERED,  # noqa: F401
+    LATEX,  # noqa: F401 – re-exported for tests / type-checking
     _now_iso,
-    chunks_from_abstract,
-    chunks_from_latex,
     chunks_from_pdf,
-    extract_from_tarball,
+    compile_latex_to_pdf,
     fetch_source_tarball,
 )
 from mara.agents.base import SpecialistAgent
@@ -54,7 +49,7 @@ def _versioned_id_from_url(id_url: str) -> str:
     marker = "/abs/"
     idx = url.find(marker)
     if idx != -1:
-        return url[idx + len(marker) :]
+        return url[idx + len(marker):]
     # Fallback: last path segment
     return url.split("/")[-1]
 
@@ -110,8 +105,7 @@ def _parse_feed(xml_text: str) -> list[dict]:
     "arxiv",
     description="Retrieves preprints and papers from ArXiv covering physics, math, CS, and quantitative biology.",
     capabilities=[
-        "Full LaTeX source for most CS/physics/math papers",
-        "PDF fallback when LaTeX is unavailable",
+        "Full compiled PDF text for most CS/physics/math papers",
         "Broad coverage of recent preprints before peer review",
         "Strong for theoretical, mathematical, and computational topics",
     ],
@@ -132,23 +126,14 @@ def _parse_feed(xml_text: str) -> list[dict]:
 class ArxivAgent(SpecialistAgent):
     """Retrieves research papers from ArXiv.
 
-    Discovery uses the export.arxiv.org Atom API.  Content follows the
-    four-level fallback chain defined in ``fetcher.py``.
-
-    The ``_chunk()`` override passes LATEX-sourced chunks straight through
-    (they are already section-sized semantic units) and applies the
-    sliding-window splitter only to PDF and abstract chunks.
+    Discovery uses the export.arxiv.org Atom API.  Content is obtained by
+    downloading the source tarball, compiling main.tex with pdflatex, and
+    extracting text from the resulting PDF.
     """
 
     # Gate every _search() entry: 3 s between discovery calls across all
     # ArxivAgent instances so concurrent sub-query runs respect ArXiv's limits.
     _rate_limit_interval: float = _RATE_LIMIT_DELAY
-
-    def _chunk(self, raw: list[RawChunk]) -> list[RawChunk]:
-        """Bypass sliding window for LaTeX sections; delegate the rest to super."""
-        latex = [c for c in raw if c.source_type == LATEX]
-        other = [c for c in raw if c.source_type != LATEX]
-        return latex + (super()._chunk(other) if other else [])
 
     async def _search(self, sub_query: SubQuery) -> list[RawChunk]:
         """Discover and retrieve ArXiv papers for *sub_query*.
@@ -159,8 +144,6 @@ class ArxivAgent(SpecialistAgent):
         headers = {"User-Agent": "MARA-research-agent/0.1 (https://github.com/mara; mailto:contact@mara.local)"}
         _log.debug("arxiv _search start t=%.3f", time.monotonic(), extra={"agent": "arxiv"})
         async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
-            # Build the query string manually so the colon in "all:<term>"
-            # is NOT percent-encoded (ArXiv rejects %3A).
             qs = (
                 f"search_query=all:{urllib.parse.quote(sub_query.query)}"
                 f"&max_results={self.agent_config.max_results}"
@@ -189,65 +172,17 @@ class ArxivAgent(SpecialistAgent):
         entry: dict,
         query: str,
     ) -> list[RawChunk]:
-        """Retrieve content for one paper using the fallback chain.
-
-        Per-paper failures are logged at DEBUG and fall through to the next
-        level rather than raising.
-        """
+        """Compile the LaTeX source for one paper and return text chunks."""
         versioned_id: str = entry["versioned_id"]
         canonical_url: str = entry["canonical_url"]
-        abstract: str = entry["abstract"]
-        pdf_url: str = entry["pdf_url"]
         retrieved_at = _now_iso()
 
-        # Step 1 — source tarball
-        _log.debug("fetch_paper %s t=%.3f", versioned_id, time.monotonic(), extra={"agent": "arxiv"})
-        tarball = await fetch_source_tarball(client, versioned_id)
-        if tarball is not None:
-            tex_contents, tarball_pdf = extract_from_tarball(tarball)
-
-            # Step 1a — LaTeX source files present
-            if tex_contents:
-                latex_chunks = chunks_from_latex(
-                    tex_contents, canonical_url, query, retrieved_at
-                )
-                if latex_chunks:
-                    return latex_chunks
-                # LaTeX files were present but produced no usable text;
-                # fall through to the PDF-in-tarball path.
-                _log.debug("latex produced no chunks for %s; trying tarball PDF", versioned_id)
-
-            # Step 2 — PDF embedded in the tarball
-            if tarball_pdf is not None:
-                pdf_chunks = chunks_from_pdf(
-                    tarball_pdf, canonical_url, query, retrieved_at, PDF_FROM_TARBALL
-                )
-                if pdf_chunks:
-                    return pdf_chunks
-                _log.debug("tarball PDF produced no text for %s", versioned_id)
-
-        # Step 3 — rendered (versioned) PDF URL
         try:
-            _log.debug("fetch pdf %s t=%.3f", pdf_url, time.monotonic(), extra={"agent": "arxiv"})
-            pdf_resp = await client.get(pdf_url, follow_redirects=True)
-            if pdf_resp.status_code == 200:
-                pdf_chunks = chunks_from_pdf(
-                    bytes(pdf_resp.content),
-                    canonical_url,
-                    query,
-                    retrieved_at,
-                    PDF_RENDERED,
-                )
-                if pdf_chunks:
-                    return pdf_chunks
-                _log.debug("rendered PDF produced no text for %s", versioned_id)
+            tarball = await fetch_source_tarball(client, versioned_id)
+            if tarball is None:
+                return []
+            pdf_bytes = compile_latex_to_pdf(tarball)
+            return chunks_from_pdf(pdf_bytes, canonical_url, query, retrieved_at)
         except Exception as exc:
-            _log.debug("rendered PDF fetch failed for %s: %s", versioned_id, exc)
-
-        # Step 4 — abstract only
-        if abstract:
-            _log.debug("falling back to abstract for %s", versioned_id)
-            return chunks_from_abstract(abstract, canonical_url, query, retrieved_at)
-
-        _log.debug("no content retrieved for %s", versioned_id)
-        return []
+            _log.debug("failed to retrieve %s: %s", versioned_id, exc, extra={"agent": "arxiv"})
+            return []
