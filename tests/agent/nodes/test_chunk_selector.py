@@ -133,3 +133,66 @@ def test_chunk_selector_returns_dict_with_selected_chunks_key(runnable_config) -
     result = chunk_selector_node(_state(flattened_chunks=[chunk]), runnable_config)
     assert "selected_chunks" in result
     assert isinstance(result["selected_chunks"], list)
+
+
+# ---------------------------------------------------------------------------
+# Round-robin sub_query interleaving
+# ---------------------------------------------------------------------------
+
+
+def test_chunk_selector_interleaves_multiple_sub_queries(runnable_config) -> None:
+    """Chunks from each sub_query appear before any sub_query fills the cap."""
+    sq_a = [
+        make_chunk(
+            text=f"alpha topic word{i} transformer attention",
+            sub_query="alpha",
+            chunk_index=i,
+            url=f"https://example.com/a{i}",
+        )
+        for i in range(5)
+    ]
+    sq_b = [
+        make_chunk(
+            text=f"beta topic word{i} neural network",
+            sub_query="beta",
+            chunk_index=10 + i,
+            url=f"https://example.com/b{i}",
+        )
+        for i in range(5)
+    ]
+    result = chunk_selector_node(
+        _state(original_query="transformer neural", flattened_chunks=sq_a + sq_b),
+        runnable_config,
+    )
+    selected = result["selected_chunks"]
+    assert len(selected) == 10
+
+    # Both sub_queries should be represented; neither should be bunched at the end
+    sub_queries_seen = [c.sub_query for c in selected]
+    first_alpha = sub_queries_seen.index("alpha")
+    first_beta = sub_queries_seen.index("beta")
+    # Both appear within the first 4 positions (interleaved, not batched)
+    assert max(first_alpha, first_beta) <= 3
+
+
+def test_chunk_selector_single_sub_query_unaffected(runnable_config) -> None:
+    """With only one sub_query, round-robin is a no-op; BM25 order is preserved."""
+    relevant = make_chunk(
+        text="transformer attention mechanism self-attention",
+        sub_query="transformers",
+        chunk_index=0,
+    )
+    irrelevant = make_chunk(
+        text="medieval tapestry ancient history",
+        sub_query="transformers",
+        chunk_index=1,
+        url="https://example.com/doc2",
+    )
+    result = chunk_selector_node(
+        _state(
+            original_query="transformer attention",
+            flattened_chunks=[irrelevant, relevant],
+        ),
+        runnable_config,
+    )
+    assert result["selected_chunks"][0].chunk_index == 0

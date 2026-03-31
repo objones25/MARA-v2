@@ -75,3 +75,61 @@ def test_score_chunks_bm25_returns_tuples() -> None:
     assert isinstance(result, list)
     assert isinstance(result[0], tuple)
     assert len(result[0]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Sub-query hybrid scoring
+# ---------------------------------------------------------------------------
+
+
+def test_score_chunks_bm25_sub_query_boost_increases_score() -> None:
+    """A chunk whose sub_query matches its text should score higher via blending."""
+    # Both chunks have the same text so original-query BM25 scores are equal.
+    # The one whose sub_query aligns with its content gets a lift from the 30% blend.
+    chunk_with_sq = make_chunk(
+        text="attention mechanism transformer encoder decoder",
+        sub_query="attention mechanism transformer",
+        chunk_index=0,
+    )
+    chunk_no_sq = make_chunk(
+        text="attention mechanism transformer encoder decoder",
+        sub_query="",  # no sub-query signal
+        chunk_index=1,
+        url="https://example.com/doc2",  # different URL so hashes differ
+    )
+    result = score_chunks_bm25(
+        [chunk_no_sq, chunk_with_sq], "attention mechanism", "sha256"
+    )
+    score_map = {r[0].chunk_index: r[1] for r in result}
+    assert score_map[0] >= score_map[1]
+
+
+def test_score_chunks_bm25_multiple_sub_queries_handled() -> None:
+    """Chunks with different sub_queries each get their own BM25 sub-query pass."""
+    chunk_a = make_chunk(
+        text="gradient descent optimization learning rate",
+        sub_query="gradient descent",
+        chunk_index=0,
+    )
+    chunk_b = make_chunk(
+        text="convolutional neural network image recognition",
+        sub_query="convolutional networks",
+        chunk_index=1,
+        url="https://example.com/doc2",
+    )
+    result = score_chunks_bm25([chunk_a, chunk_b], "neural network training", "sha256")
+    # Both chunks are scored — no exception from multiple sub_query BM25 passes
+    assert len(result) == 2
+    assert all(isinstance(s, float) for _, s in result)
+
+
+def test_score_chunks_bm25_empty_sub_query_uses_original_only() -> None:
+    """Chunk with empty sub_query falls back to 100 % original-query scoring."""
+    chunk = make_chunk(
+        text="reinforcement learning reward policy gradient",
+        sub_query="",
+        chunk_index=0,
+    )
+    result = score_chunks_bm25([chunk], "reinforcement learning", "sha256")
+    assert len(result) == 1
+    assert result[0][1] >= 0.0

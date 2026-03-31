@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -59,7 +60,20 @@ async def report_synthesizer_node(state: GraphState, config: RunnableConfig) -> 
         top_k=research_config.llm_top_k,
     )
 
-    user_content = f"Research query: {original_query}\n\nSource excerpts:\n{context}"
+    sub_query_dist = Counter(c.sub_query for c in flattened_chunks if c.sub_query)
+    if sub_query_dist:
+        dist_lines = "\n".join(
+            f"  - {sq}: {n} chunk{'s' if n != 1 else ''}"
+            for sq, n in sub_query_dist.most_common()
+        )
+        user_content = (
+            f"Research query: {original_query}\n\n"
+            f"Sub-query coverage (use these to structure your thematic sections):\n"
+            f"{dist_lines}\n\n"
+            f"Source excerpts:\n{context}"
+        )
+    else:
+        user_content = f"Research query: {original_query}\n\nSource excerpts:\n{context}"
     response = await llm.ainvoke(
         [
             SystemMessage(content=_SYSTEM_PROMPT),

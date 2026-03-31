@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
+from itertools import zip_longest
 
 from langchain_core.runnables import RunnableConfig
 
@@ -11,6 +13,30 @@ from mara.agent.state import GraphState
 from mara.agents.types import VerifiedChunk
 
 _log = logging.getLogger(__name__)
+
+
+def _interleave_by_sub_query(
+    scored: list[tuple[VerifiedChunk, float]],
+) -> list[tuple[VerifiedChunk, float]]:
+    """Round-robin interleave BM25-ranked chunks by sub_query.
+
+    Groups chunks by their originating ``sub_query`` string, preserving BM25
+    rank within each group.  The round-robin then picks one chunk per group per
+    round, ensuring every research aspect gets representation in the cap window
+    before any single sub_query can exhaust it.
+
+    When all chunks share the same sub_query (single-aspect queries or tests)
+    the function is a no-op and the original BM25 order is returned unchanged.
+    """
+    groups: dict[str, list[tuple[VerifiedChunk, float]]] = defaultdict(list)
+    for item in scored:
+        groups[item[0].sub_query].append(item)
+    result: list[tuple[VerifiedChunk, float]] = []
+    for round_ in zip_longest(*groups.values()):
+        for item in round_:
+            if item is not None:
+                result.append(item)
+    return result
 
 
 def chunk_selector_node(state: GraphState, config: RunnableConfig) -> dict:
@@ -42,6 +68,9 @@ def chunk_selector_node(state: GraphState, config: RunnableConfig) -> dict:
 
     # Step 2: BM25 relevance scoring
     scored = score_chunks_bm25(deduped, original_query, research_config.hash_algorithm)
+
+    # Step 2b: round-robin interleave by sub_query for topical diversity
+    scored = _interleave_by_sub_query(scored)
 
     # Step 3: cap
     cap = research_config.chunk_selector_cap

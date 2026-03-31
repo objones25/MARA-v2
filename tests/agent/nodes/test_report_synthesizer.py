@@ -68,6 +68,50 @@ async def test_report_synthesizer_includes_chunk_citations_in_prompt(runnable_co
     assert "important finding" in human_msg_content
 
 
+async def test_report_synthesizer_includes_sub_query_distribution(runnable_config) -> None:
+    """Sub-query coverage block appears in the prompt when chunks carry sub_queries."""
+    chunks = [
+        make_chunk(text="content A", sub_query="alpha topic", chunk_index=0),
+        make_chunk(
+            text="content B",
+            sub_query="beta topic",
+            chunk_index=1,
+            url="https://example.com/doc2",
+        ),
+        make_chunk(
+            text="content C",
+            sub_query="alpha topic",
+            chunk_index=2,
+            url="https://example.com/doc3",
+        ),
+    ]
+    state = {"original_query": "q", "flattened_chunks": chunks}
+    mock_llm = _make_llm_mock("report")
+
+    with patch("mara.agent.nodes.report_synthesizer.make_llm", return_value=mock_llm):
+        await report_synthesizer_node(state, runnable_config)
+
+    call_args = mock_llm.ainvoke.call_args[0][0]
+    human_msg_content = call_args[-1].content
+    assert "Sub-query coverage" in human_msg_content
+    assert "alpha topic: 2 chunks" in human_msg_content
+    assert "beta topic: 1 chunk" in human_msg_content
+
+
+async def test_report_synthesizer_no_sub_query_distribution_when_empty(runnable_config) -> None:
+    """No distribution block when all chunks have empty sub_query strings."""
+    chunk = make_chunk(text="content", sub_query="", chunk_index=0)
+    state = {"original_query": "q", "flattened_chunks": [chunk]}
+    mock_llm = _make_llm_mock("report")
+
+    with patch("mara.agent.nodes.report_synthesizer.make_llm", return_value=mock_llm):
+        await report_synthesizer_node(state, runnable_config)
+
+    call_args = mock_llm.ainvoke.call_args[0][0]
+    human_msg_content = call_args[-1].content
+    assert "Sub-query coverage" not in human_msg_content
+
+
 async def test_report_synthesizer_calls_make_llm_with_config(runnable_config) -> None:
     state = {"original_query": "q", "flattened_chunks": []}
     mock_llm = _make_llm_mock("ok")
